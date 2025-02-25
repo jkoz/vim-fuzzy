@@ -30,7 +30,8 @@ abstract class AbstractFuzzy implements Fuzzy
     kh.EnterHandler.new(), 
     kh.CancelHandler.new(),
     kh.UpHandler.new(),
-    kh.DownHandler.new()
+    kh.DownHandler.new(),
+    kh.DeleteHandler.new()
   ]
   static var regular_handler = kh.RegularKeyHandler.new()
 
