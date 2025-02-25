@@ -55,8 +55,25 @@ abstract class AbstractFuzzy implements Fuzzy
 		borderchars: ['─', '│', '─', '│', '┌', '┐', '┘', '└'],
 	}
 
+  def FormatSelectedItem()
+    if (!this.GetSelectedItem()->empty())
+      setbufvar(this._bufnr, '&filetype', '')
+
+      # Add highlight line text prop, need a bufnr
+      if empty(prop_type_get('FuzzyMatch'))
+        hi def link FuzzyMatch PmenuSel
+        prop_type_add('FuzzyMatch', {highlight: "FuzzyMatch", override: true, priority: 1000, combine: true})
+      endif
+
+      # initally, _index will point to 0
+      # TODO: uncomment me for current high light
+      prop_add(this.GetSelectedItem_Index() + 2, 1, { length: 70, type: 'FuzzyMatch', bufnr: this._bufnr })
+    endif
+  enddef
+
+  # if up/down call update, there is no update on searchstr
   def Update(ss: string)
-    ch_log("Fuzzy.vim: Update(): _searchstr " .. this._searchstr)
+    ch_log("Fuzzy.vim: Update(): this._searchstr = '" .. this._searchstr .. "'")
 
     # update latest search string from RegularKeyHandler
     this._searchstr = ss
@@ -94,6 +111,9 @@ abstract class AbstractFuzzy implements Fuzzy
 
     this._popup_id = popup_create( extend([this._prompt], this._input_list), extend({filter: this._OnKeyDown}, this._popup_opts))
     this._bufnr = winbufnr(this._popup_id)
+
+    this.FormatSelectedItem()
+
   enddef
 
   def _OnKeyDown(winid: number, key: string): bool
@@ -103,7 +123,8 @@ abstract class AbstractFuzzy implements Fuzzy
       'on_enter_cb': this.OnEnter,
       'on_item_up_cb': this.SelectedItem_Up,
       'on_item_down_cb': this.SelectedItem_Down,
-      'update_cb': this.Update
+      'update_cb': this.Update,
+      'format_cb': this.FormatSelectedItem
     }
 
     # 1. handle all special keys first
