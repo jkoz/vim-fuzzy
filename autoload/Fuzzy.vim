@@ -26,15 +26,7 @@ endinterface
 
 abstract class AbstractFuzzy implements Fuzzy
 
-  static var handlers: list<kh.KeyHandler> = [
-    kh.EnterHandler.new(), 
-    kh.CancelHandler.new(),
-    kh.UpHandler.new(),
-    kh.DownHandler.new(),
-    kh.DeleteHandler.new()
-  ]
-  static var regular_handler = kh.RegularKeyHandler.new()
-
+  var _handlers: kh.KeyHandlerManager =  kh.KeyHandlerManagerImpl.new()
   var _selected_id: number = 0  # current selected index
   var _input_list: list<any>    # input list 
   var _results: list<list<any>> # return by matchfuzzypos()
@@ -44,7 +36,6 @@ abstract class AbstractFuzzy implements Fuzzy
   var _prompt: string = ">> "
   var _searchstr: string
 
-  # static var _regular_handler = kh.RegularHandler.new() 
 
 	# initialized static options
 	var _popup_opts = {
@@ -118,7 +109,8 @@ abstract class AbstractFuzzy implements Fuzzy
   enddef
 
   def _OnKeyDown(winid: number, key: string): bool
-    var props = {
+    return this._handlers.OnKeyDown({
+      'key': key,
       'winid': winid, 
       'searchstr': this._searchstr,
       'on_enter_cb': this.OnEnter,
@@ -126,19 +118,7 @@ abstract class AbstractFuzzy implements Fuzzy
       'on_item_down_cb': this.SelectedItem_Down,
       'update_cb': this.Update,
       'format_cb': this.FormatSelectedItem
-    }
-
-    # 1. handle all special keys first
-    for it in AbstractFuzzy.handlers
-      if (it.Accept(key, props)) 
-        return true
-      endif
-    endfor
-
-    # 2. 2. here comes the regular keys: a, b, c..
-    AbstractFuzzy.regular_handler.Accept(key, props)
-
-    return true
+    })
   enddef
 
   def OnEnter()
