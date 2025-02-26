@@ -19,7 +19,11 @@ interface Fuzzy
 
   def SelectedItem_Up(): void
 
+  def IsEmptyResults(): bool
+
   def GetSelectedItem_Index(): number
+
+  def Initialize_Result_List()
 
 endinterface
 
@@ -48,7 +52,7 @@ abstract class AbstractFuzzy implements Fuzzy
 	}
 
   def FormatSelectedItem()
-    if (!this.GetSelectedItem()->empty())
+    if (!this.IsEmptyResults())
       setbufvar(this._bufnr, '&filetype', '')
 
       # Add highlight line text prop, need a bufnr
@@ -59,7 +63,8 @@ abstract class AbstractFuzzy implements Fuzzy
 
       # initally, _index will point to 0
       # TODO: uncomment me for current high light
-      prop_add(this.GetSelectedItem_Index() + 2, 1, { length: 70, type: 'FuzzyMatch', bufnr: this._bufnr })
+      
+        prop_add(this.GetSelectedItem_Index() + 2, 1, { length: 70, type: 'FuzzyMatch', bufnr: this._bufnr })
     endif
   enddef
 
@@ -71,11 +76,6 @@ abstract class AbstractFuzzy implements Fuzzy
     this._searchstr = ss
 
     if (!empty(this._searchstr))
-      # matchfuzzypos([{'id': 1, 'text': 'clay'}, {'id': 2, 'text': 'lacylicyc', 'hj': 55}], 'cy', {'key': 'text'})
-      # > [[{'id': 2, 'hj': 55, 'text': 'lacylicyc'}, {'id': 1, 'text': 'clay'}], [[2, 3], [0, 3]], [173, 157]]
-      #
-      #  _matched_items: [{'id': 1, 'text': 'clay'}, {'id': 2, 'text': 'lacylicyc', 'hj': 55}]
-      #  _filter_items: [[{'id': 2, 'hj': 55, 'text': 'lacylicyc'}, {'id': 1, 'text': 'clay'}], [[2, 3], [0, 3]], [173, 157]]
 
       this.DoFuzzy(this._searchstr)
 
@@ -92,14 +92,18 @@ abstract class AbstractFuzzy implements Fuzzy
     this.GetDisplayList()->appendbufline(this._bufnr, '$')
   enddef
 
+  def Initialize_Result_List()
+    # initially, results[0] will be set to input_list
+    this._results = [this._input_list]
+  enddef 
+
   def Search(): void
     if (empty(this._input_list))
       echo "Provided list are empty"
       return
     endif
 
-    # initially, results[0] will be set to input_list
-    this._results = [this._input_list]
+    this.Initialize_Result_List()
 
     this._popup_id = popup_create( extend([this._prompt], this._input_list), extend({filter: this._OnKeyDown}, this._popup_opts))
     this._bufnr = winbufnr(this._popup_id)
@@ -134,7 +138,11 @@ abstract class AbstractFuzzy implements Fuzzy
   enddef
 
   def GetSelectedItem(): string
-    return this.GetDisplayList()->empty() ? "" : this.GetDisplayList()[this._selected_id]
+    return this.IsEmptyResults() ? "" : this.GetDisplayList()[this._selected_id]
+  enddef
+
+  def IsEmptyResults(): bool
+    return this.GetDisplayList()->empty()
   enddef
 
   def GetSelectedItem_Index(): number
@@ -166,4 +174,81 @@ export class MRU extends EditFuzzy
     # DEBUG
     ch_logfile('/tmp/fuzzy.log', 'w')
   enddef
+endclass
+
+export class File extends EditFuzzy
+  def new()
+    this._input_list = getcompletion('', 'file')
+  enddef
+endclass
+
+export class JumpFuzzy extends AbstractFuzzy
+
+endclass
+
+export class Line extends JumpFuzzy
+  def new()
+    # [ {'id': 1, 'text': 'line 1'}, {'id': 1, 'text': 'line 1'} ]
+    # [{lnum: 14, text: "line"]
+    # winbufnr(0) return the current buff
+    # TODO: need to remove blanks space      
+    this._input_list = matchbufline(winbufnr(0), $'^.*$', 1, '$') 
+    ch_logfile('/tmp/fuzzy.log', 'w')
+  enddef
+
+  def DoFuzzy(searchstr: string)
+    # matchfuzzypos([{'lnum': 1, 'text': 'clay'}, {'lnum': 2, 'text': 'lacylicyc', 'hj': 55}], 'cy', {'key': 'text'})
+    # > [[{'id': 2, 'hj': 55, 'text': 'lacylicyc'}, {'id': 1, 'text': 'clay'}], [[2, 3], [0, 3]], [173, 157]]
+    #
+    #  _input_list: [{'lnum': 1, 'text': 'clay'}, {'lnum': 2, 'text': 'lacylicyc', 'hj': 55}]
+    #      > matchfuzzypos(_input_list, 'cy', {'key': 'text'})
+    #  _results: [[{'lnum': 2, 'hj': 55, 'text': 'lacylicyc'}, {'lnum': 1, 'text': 'clay'}], [[2, 3], [0, 3]], [173, 157]]
+    this._results = this._input_list->matchfuzzypos(searchstr, {'key': 'text'})
+  enddef
+
+  def Initialize_Result_List()
+    # initially, results[0] will be set to input_list
+    this._results = [this._input_list]
+  enddef 
+
+  def GetDisplayList(): list<string> 
+    # ch_log("Fuzzy.vim: Line.GetDisplayList:  " .. this._results->string())
+    var ret: list<string> = []
+    this._results[0]->foreach((_, v) => {
+        ret->extend([v.text])
+      })
+    # ch_log("Fuzzy.vim: GetDisplayList.ret" .. ret->string())
+    return ret
+  enddef
+
+  def IsEmptyResults(): bool
+    ch_log("Fuzzy.vim: IsEmptyResults(): this._searchstr = '" .. this._results[0]->string() .. "'")
+    return this._results[0]->empty()
+  enddef
+
+  def OnEnter()
+    if (!this.IsEmptyResults())
+      execute($"exec 'normal m`' | :{this._results[0][this._selected_id].lnum} | norm zz")
+    endif
+  enddef
+
+  def FormatSelectedItem()
+    if (!this.IsEmptyResults())
+      setbufvar(this._bufnr, '&filetype', '')
+
+      # Add highlight line text prop, need a bufnr
+      if empty(prop_type_get('FuzzyMatch'))
+        hi def link FuzzyMatch PmenuSel
+        prop_type_add('FuzzyMatch', {highlight: "FuzzyMatch", override: true, priority: 1000, combine: true})
+      endif
+
+      # initally, _index will point to 0
+      # TODO: uncomment me for current high light
+      # lines does not show up at first times,
+      if (this.GetSelectedItem_Index() != 0)
+        prop_add(this.GetSelectedItem_Index() + 2, 1, { length: 70, type: 'FuzzyMatch', bufnr: this._bufnr })
+      endif
+    endif
+  enddef
+
 endclass
