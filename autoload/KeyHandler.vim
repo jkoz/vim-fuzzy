@@ -4,8 +4,8 @@ const KEYS = {
   Enter: ["\<CR>", "\<C-m>"],
   Tab: ["\<C-t>"],
   Cancel: ["\<esc>"],
-  Up: ["\<C-p>"],
-  Down: ["\<C-n>"],
+  Up: ["\<C-p>", "\<S-Tab>", "\<Up>"],
+  Down: ["\<C-n>", "\<Tab>", "\<Down>"],
   Delete: ["\<C-h>", "\<BS>"]
 }
 
@@ -126,8 +126,9 @@ export class DeleteHandler extends AbstractKeyHandler
   def __Accept(props: dict<any>): bool
 
     # call update to reset popup buffer, so all old highlight is gone
-    props.update_cb(substitute(props.searchstr, ".$", "", "")) 
+    props.update_cb(props.searchstr->substitute(".$", "", ""))
     props.format_cb()
     return true
   enddef
 endclass
+

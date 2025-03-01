@@ -35,6 +35,7 @@ abstract class AbstractFuzzy implements Fuzzy
     if empty(prop_type_get('FuzzyMatch'))
       prop_type_add('FuzzyMatch', {highlight: "FuzzyMatch", override: true, priority: 1000, combine: true})
     endif
+    ch_logfile('/tmp/vim-fuzz.log', 'w')
 
     this.__Initialize() # subclass init
   enddef
@@ -42,21 +43,20 @@ abstract class AbstractFuzzy implements Fuzzy
   def FormatSelectedItem()
     if (!this._results[0]->empty())
       setbufvar(this._bufnr, '&filetype', '')
-      prop_add(this._selected_id + 2, 1, { length: 70, type: 'FuzzyMatch', bufnr: this._bufnr })
+      prop_add(this._selected_id + 2, 1, { length: 120, type: 'FuzzyMatch', bufnr: this._bufnr })
     endif
   enddef
 
   # if up/down call update, there is no update on searchstr
   def Update(ss: string)
-    ch_log("Fuzzy.vim: Update(): this._searchstr = '" .. this._searchstr .. "'")
 
     # update latest search string from RegularKeyHandler
     this._searchstr = ss
 
-    if (!empty(this._searchstr))
-
+    if (this._searchstr->empty()) # searchstr is now empty, restore _input_list
+      this._results = [this._input_list]
+    else # got a new _searhstr, lets match
       this.DoFuzzy(this._searchstr)
-
     endif
 
     # Clear old matched lines in the buffer, skip the first line 
@@ -101,6 +101,7 @@ abstract class AbstractFuzzy implements Fuzzy
   enddef
 
   def _OnKeyDown(winid: number, key: string): bool
+    ch_log("Fuzzy.vim: _OnkeyDown(): key = '" .. key .. "' ")
     return this._handlers.OnKeyDown({
       'key': key,
       'winid': winid, 
@@ -122,6 +123,7 @@ abstract class AbstractFuzzy implements Fuzzy
   enddef
 
   def GetDisplayList(): list<string> 
+    ch_log("Fuzzy.vim: Update(): GetDisplayList()= '" .. this._results[0]->string() .. "' ")
     return this._results[0]
   enddef
 
@@ -224,4 +226,15 @@ export class GitFile extends EditFuzzy
   def OnEnter()
     execute($"edit {this._file_pwd .. "/" .. this.GetSelectedItem()}")
   enddef
+
+  def GetDisplayList(): list<string> 
+    # echo "../../../../fff/jjj/autoload/fuzzy.vim"->substitute('.*\/\(/*`\)$', '\1', '')
+    return this._results[0]->mapnew((_, v) => v->substitute('.*\/\(.*\)$', '\1', ''))
+  enddef
+
+  # TODO: eed to figure out whey turn this on failed.
+  # def GetSelectedItem(): string
+  #   return this._results[0]->empty() ? "" : this._results[0].[this._selected_id]
+  # enddef
+
 endclass
