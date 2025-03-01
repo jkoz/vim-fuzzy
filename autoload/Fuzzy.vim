@@ -4,6 +4,7 @@ import autoload "./KeyHandler.vim" as kh
 
 
 interface Fuzzy
+  def Initialize(): void
   def DoFuzzy(searchstr: string)
   def Search(): void
   def GetDisplayList(): list<string> 
@@ -13,7 +14,6 @@ interface Fuzzy
 endinterface
 
 abstract class AbstractFuzzy implements Fuzzy
-
   var _handlers: kh.KeyHandlerManager =  kh.KeyHandlerManagerImpl.new()
   var _selected_id: number = 0  # current selected index
   var _input_list: list<any>    # input list 
@@ -24,20 +24,25 @@ abstract class AbstractFuzzy implements Fuzzy
   var _prompt: string = ">> "
   var _searchstr: string
 
+  def __Initialize()
+    echo "Missing internal initialization for input list"
+  enddef
+
+  def Initialize()
+    if !hlexists('FuzzyMatch')
+      hi def link FuzzyMatch PmenuSel
+    endif
+    if empty(prop_type_get('FuzzyMatch'))
+      prop_type_add('FuzzyMatch', {highlight: "FuzzyMatch", override: true, priority: 1000, combine: true})
+    endif
+
+    this.__Initialize() # subclass init
+  enddef
+
   def FormatSelectedItem()
     if (!this._results[0]->empty())
       setbufvar(this._bufnr, '&filetype', '')
-
-      # Add highlight line text prop, need a bufnr
-      if empty(prop_type_get('FuzzyMatch'))
-        hi def link FuzzyMatch PmenuSel
-        prop_type_add('FuzzyMatch', {highlight: "FuzzyMatch", override: true, priority: 1000, combine: true})
-      endif
-
-      # initally, _index will point to 0
-      # TODO: uncomment me for current high light
-      
-        prop_add(this._selected_id + 2, 1, { length: 70, type: 'FuzzyMatch', bufnr: this._bufnr })
+      prop_add(this._selected_id + 2, 1, { length: 70, type: 'FuzzyMatch', bufnr: this._bufnr })
     endif
   enddef
 
@@ -66,7 +71,9 @@ abstract class AbstractFuzzy implements Fuzzy
   enddef
 
   def Search(): void
-    if (empty(this._input_list))
+    this.Initialize() # populate search list
+
+    if (empty(this._input_list)) # got an empty list, do nothing
       echo "Provided list are empty"
       return
     endif
@@ -83,6 +90,7 @@ abstract class AbstractFuzzy implements Fuzzy
         maxwidth: float2nr(&columns * 0.6),
         maxheight: float2nr(&lines * 0.6),
         minheight: float2nr(&lines * 0.6),
+        highlight: '',
         padding: [0, 1, 0, 1],
         border: [1, 1, 1, 1],
         borderchars: ['─', '│', '─', '│', '┌', '┐', '┘', '└'],
@@ -133,38 +141,35 @@ abstract class AbstractFuzzy implements Fuzzy
 endclass 
 
 abstract class EditFuzzy extends AbstractFuzzy
-
   def OnEnter()
     execute($"edit {this.GetSelectedItem()}")
   enddef
-
 endclass
 
 export class MRU extends EditFuzzy
-  def new()
+  def __Initialize()
     this._input_list = v:oldfiles->copy()->filter((_, v) => filereadable(fnamemodify(v, ":p")))
-    # DEBUG
-    ch_logfile('/tmp/fuzzy.log', 'w')
   enddef
 endclass
 
 export class File extends EditFuzzy
-  def new()
+  def __Initialize()
     this._input_list = getcompletion('', 'file')
   enddef
 endclass
 
 export class JumpFuzzy extends AbstractFuzzy
-
+  def OnEnter()
+    if (!this._results[0]->empty())
+      execute($"exec 'normal m`' | :{this._results[0][this._selected_id].lnum} | norm zz")
+    endif
+  enddef
 endclass
 
 export class Line extends JumpFuzzy
-  def new()
-    # TODO:
-    #  - Remove blanks space      
-    #  - Crash at java files Animal.java
-    this._input_list = matchbufline(winbufnr(0), $'\S.*', 1, '$') 
-    ch_logfile('/tmp/fuzzy.log', 'w')
+  def __Initialize()
+    # TODO: - Crash at java files Animal.java
+    this._input_list = matchbufline(winbufnr(0), '\S.*', 1, '$') 
   enddef
 
   def DoFuzzy(searchstr: string)
@@ -175,20 +180,48 @@ export class Line extends JumpFuzzy
   enddef
 
   def GetDisplayList(): list<string> 
-    # ch_log("Fuzzy.vim: Line.GetDisplayList:  " .. this._results->string())
-    var ret: list<string> = []
-    this._results[0]->foreach((_, v) => {
-        ret->extend([v.text])
-        # ret->extend([v.lnum .. "\t" ..  v.text])
-      })
-    # ch_log("Fuzzy.vim: GetDisplayList.ret" .. ret->string())
-    return ret
+    return this._results[0]->mapnew((_, v) => v.text) # convert from list<dict> to list<string>
+  enddef
+endclass
+
+abstract class ExecuteFuzzy extends AbstractFuzzy
+  def OnEnter()
+    feedkeys(":" .. this.GetSelectedItem(), "n") # feed keys to command only, don't execute it 
+  enddef
+endclass
+
+export class CmdHistory extends ExecuteFuzzy
+  def __Initialize()
+    this._input_list = [ histget('cmd') ]
+    this._input_list += range(1, histnr('cmd'))->mapnew((_, v) =>  histget('cmd', v) )  
+  enddef
+endclass
+
+export class Cmd extends ExecuteFuzzy
+  def __Initialize()
+    this._input_list = getcompletion('', 'command')
+  enddef
+endclass
+
+export class Buffer extends EditFuzzy
+  def __Initialize()
+    this._input_list = getcompletion('', 'buffer')->filter((_, v) => bufnr(v) != bufnr())
+  enddef
+endclass
+
+export class GitFile extends EditFuzzy
+  var _file_pwd: string
+
+  def __Initialize()
+    # get directory path of current open file, can check error here 
+    this._file_pwd = expand('%:p:h')
+    # find top level of current open files & list all git files in the projects
+    # TODO: call with async timer start
+    # show popup with out data, then timer_start fill the popup screen
+    this._input_list = systemlist('git -C ' .. this._file_pwd .. ' ls-files `git -C ' .. this._file_pwd .. ' rev-parse --show-toplevel`')
   enddef
 
   def OnEnter()
-    if (!this._results[0]->empty())
-      execute($"exec 'normal m`' | :{this._results[0][this._selected_id].lnum} | norm zz")
-    endif
+    execute($"edit {this._file_pwd .. "/" .. this.GetSelectedItem()}")
   enddef
-
 endclass
