@@ -2,7 +2,6 @@ vim9script
 
 import autoload "./KeyHandler.vim" as kh
 
-
 interface Fuzzy
   def Initialize(): void
   def DoFuzzy(searchstr: string)
@@ -38,6 +37,9 @@ abstract class AbstractFuzzy implements Fuzzy
     ch_logfile('/tmp/vim-fuzz.log', 'w')
 
     this.__Initialize() # subclass init
+
+    # after subless init, results[0] will be set to the populated _input_list
+    this._results = [this._input_list]
   enddef
 
   def FormatSelectedItem()
@@ -48,8 +50,7 @@ abstract class AbstractFuzzy implements Fuzzy
   enddef
 
   # if up/down call update, there is no update on searchstr
-  def Update(ss: string)
-
+  def Update(ss: string = this._searchstr)
     # update latest search string from RegularKeyHandler
     this._searchstr = ss
 
@@ -59,27 +60,11 @@ abstract class AbstractFuzzy implements Fuzzy
       this.DoFuzzy(this._searchstr)
     endif
 
-    # Clear old matched lines in the buffer, skip the first line 
-    deletebufline(this._bufnr, 1, "$")
-
-    # TODO: HACK to disable delete empty buffer messg "--No Lines in BUffers--"
-    echo ""
-
-    # update current filter items to buffer including the prompt
-    setbufline(this._bufnr, '$', this._prompt .. this._searchstr)
-    this.GetDisplayList()->appendbufline(this._bufnr, '$')
+    popup_settext(this._popup_id, [this._prompt .. this._searchstr] + this.GetDisplayList())
   enddef
 
   def Search(): void
     this.Initialize() # populate search list
-
-    if (empty(this._input_list)) # got an empty list, do nothing
-      echo "Provided list are empty"
-      return
-    endif
-
-    # initially, results[0] will be set to input_list
-    this._results = [this._input_list]
 
     this._popup_id = popup_create( 
       extend([this._prompt], this.GetDisplayList()), {
@@ -115,8 +100,13 @@ abstract class AbstractFuzzy implements Fuzzy
   enddef
 
   def OnEnter()
-    echo "missing OnEnter() implement for fuzzy command"
+    if (this._results[0]->empty())
+      echo "Nothing to be selected"
+    else
+      this.__OnEnter()
+    endif
   enddef
+
 
   def DoFuzzy(searchstr: string): void
     this._results = this._input_list->matchfuzzypos(searchstr)
@@ -128,7 +118,7 @@ abstract class AbstractFuzzy implements Fuzzy
   enddef
 
   def GetSelectedItem(): string
-    return this._results[0]->empty() ? "" : this.GetDisplayList()[this._selected_id]
+    return this.GetDisplayList()[this._selected_id]
   enddef
 
   def SelectedItem_Down(): void
@@ -140,10 +130,17 @@ abstract class AbstractFuzzy implements Fuzzy
     this._selected_id = max([this._selected_id - 1, 0])
     ch_log("Fuzzy.vim: SelectedItem_Up  " .. this._selected_id)
   enddef
+
+  def _AsyncRun(cmd: string): void
+    timer_start(0, (id) => { # Run & update popup
+      this._input_list = systemlist(cmd)
+      this.Update()
+    })
+  enddef
 endclass 
 
 abstract class EditFuzzy extends AbstractFuzzy
-  def OnEnter()
+  def __OnEnter()
     execute($"edit {this.GetSelectedItem()}")
   enddef
 endclass
@@ -156,12 +153,13 @@ endclass
 
 export class File extends EditFuzzy
   def __Initialize()
-    this._input_list = getcompletion('', 'file')
+    # this._input_list = getcompletion('', 'file')
+    this._AsyncRun('find ' .. expand('%:p:h'))
   enddef
 endclass
 
 export class JumpFuzzy extends AbstractFuzzy
-  def OnEnter()
+  def __OnEnter()
     if (!this._results[0]->empty())
       execute($"exec 'normal m`' | :{this._results[0][this._selected_id].lnum} | norm zz")
     endif
@@ -187,7 +185,7 @@ export class Line extends JumpFuzzy
 endclass
 
 abstract class ExecuteFuzzy extends AbstractFuzzy
-  def OnEnter()
+  def __OnEnter()
     feedkeys(":" .. this.GetSelectedItem(), "n") # feed keys to command only, don't execute it 
   enddef
 endclass
@@ -211,30 +209,20 @@ export class Buffer extends EditFuzzy
   enddef
 endclass
 
-export class GitFile extends EditFuzzy
+export class GitFile extends AbstractFuzzy
   var _file_pwd: string
 
   def __Initialize()
-    # get directory path of current open file, can check error here 
     this._file_pwd = expand('%:p:h')
-    # find top level of current open files & list all git files in the projects
-    # TODO: call with async timer start
-    # show popup with out data, then timer_start fill the popup screen
-    this._input_list = systemlist('git -C ' .. this._file_pwd .. ' ls-files `git -C ' .. this._file_pwd .. ' rev-parse --show-toplevel`')
+    this._AsyncRun('git -C ' .. this._file_pwd .. ' ls-files `git -C ' .. this._file_pwd .. ' rev-parse --show-toplevel`')
   enddef
 
-  def OnEnter()
-    execute($"edit {this._file_pwd .. "/" .. this.GetSelectedItem()}")
+  def __OnEnter()
+    execute($"edit {this._file_pwd .. "/" .. this._results[0][this._selected_id]}")
   enddef
 
   def GetDisplayList(): list<string> 
-    # echo "../../../../fff/jjj/autoload/fuzzy.vim"->substitute('.*\/\(/*`\)$', '\1', '')
+    # jsut list the file name on ly in the list
     return this._results[0]->mapnew((_, v) => v->substitute('.*\/\(.*\)$', '\1', ''))
   enddef
-
-  # TODO: eed to figure out whey turn this on failed.
-  # def GetSelectedItem(): string
-  #   return this._results[0]->empty() ? "" : this._results[0].[this._selected_id]
-  # enddef
-
 endclass
