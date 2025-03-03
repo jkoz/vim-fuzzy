@@ -3,7 +3,7 @@ vim9script
 const KEYS = {
   Enter: ["\<CR>", "\<C-m>"],
   Tab: ["\<C-t>"],
-  Cancel: ["\<esc>"],
+  Cancel: ["\<esc>", "\<C-g>", "\<C-[>"],
   Up: ["\<C-p>", "\<S-Tab>", "\<Up>"],
   Down: ["\<C-n>", "\<Tab>", "\<Down>"],
   Delete: ["\<C-h>", "\<BS>"]
@@ -17,31 +17,6 @@ export interface KeyHandlerManager
   def OnKeyDown(props: dict<any>): bool
 endinterface
 
-export class KeyHandlerManagerImpl implements KeyHandlerManager
-
-  # RegularKeyHandler should be at the end of the list 
-  # this rely on list implementation is ordered list
-  const _handlers: list<KeyHandler> = [
-    EnterHandler.new(), 
-    CancelHandler.new(),
-    UpHandler.new(),
-    DownHandler.new(),
-    DeleteHandler.new(),
-    RegularKeyHandler.new(),
-  ]
-
-  # define factory singleton here
-  def OnKeyDown(props: dict<any>): bool
-    for item in this._handlers
-      if (item.Accept(props))
-        return true
-      endif
-    endfor
-
-    return false
-  enddef
-
-endclass
 
 abstract class AbstractKeyHandler implements KeyHandler
   var _key_list: list<string>
@@ -87,8 +62,6 @@ export class UpHandler extends AbstractKeyHandler
   enddef
   def __Accept(props: dict<any>): bool
     props.on_item_up_cb()
-
-    # call update to reset popup buffer, so all old highlight is gone
     props.update_cb(props.searchstr) 
     props.format_cb()
     return true
@@ -101,8 +74,6 @@ export class DownHandler extends AbstractKeyHandler
   enddef
   def __Accept(props: dict<any>): bool
     props.on_item_down_cb()
-
-    # call update to reset popup buffer, so all old highlight is gone
     props.update_cb(props.searchstr) 
     props.format_cb()
     return true
@@ -111,8 +82,7 @@ endclass
 
 export class RegularKeyHandler implements KeyHandler
   def Accept(props: dict<any>): bool
-
-    # call update to reset popup buffer, so all old highlight is gone
+    props.reset_selected_id()
     props.update_cb(props.searchstr .. props.key)
     props.format_cb()
     return true
@@ -124,11 +94,30 @@ export class DeleteHandler extends AbstractKeyHandler
     this._key_list = KEYS.Delete
   enddef
   def __Accept(props: dict<any>): bool
-
-    # call update to reset popup buffer, so all old highlight is gone
     props.update_cb(props.searchstr->substitute(".$", "", ""))
     props.format_cb()
     return true
   enddef
 endclass
 
+export class KeyHandlerManagerImpl implements KeyHandlerManager
+
+  static const Handlers: list<KeyHandler> = [
+    EnterHandler.new(), 
+    CancelHandler.new(),
+    UpHandler.new(),
+    DownHandler.new(),
+    DeleteHandler.new(),
+    RegularKeyHandler.new(),
+  ]
+
+  def OnKeyDown(props: dict<any>): bool
+    for item in KeyHandlerManagerImpl.Handlers
+      if (item.Accept(props))
+        return true
+      endif
+    endfor
+    return false
+  enddef
+
+endclass

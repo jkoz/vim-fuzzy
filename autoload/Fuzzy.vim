@@ -5,8 +5,8 @@ import autoload "./KeyHandler.vim" as kh
 interface Fuzzy
   def Initialize(): void
   def DoFuzzy(searchstr: string)
-  def Search(): void
-  def GetDisplayList(): list<string> 
+  def Search(searchstr: string): void
+  def GetFormatResultList(): list<string> 
   def GetSelectedItem(): string 
   def SelectedItem_Down(): void
   def SelectedItem_Up(): void
@@ -22,30 +22,67 @@ abstract class AbstractFuzzy implements Fuzzy
   var _popup_id: number
   var _prompt: string = ">> "
   var _searchstr: string
+  var _timers: dict<any> = {}
 
   def __Initialize()
     echo "Missing internal initialization for input list"
   enddef
 
+  # this method is call for initially populating the _input_list
+  def _WrapResultList()
+    # if we got some result to display & the _input_list was not populated as
+    # list<dict<any>: [ 'text': 'line1' , 'text': 'line2' ]. We convert it
+    # to any list<dict<any>> so we can use in matchfuzzypos later
+    if (!this._input_list->empty() && type(this._input_list[0]) ==# type(''))
+      this._input_list = this._input_list->mapnew((_, v) => {
+          return {'text': v}
+        })
+    endif
+    # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
+    this._results = [this._input_list]
+    
+    this._selected_id = 0 # reset selected id on new popup
+  enddef
+
   def Initialize()
     if !hlexists('FuzzyMatch')
-      hi def link FuzzyMatch PmenuSel
+      hi FuzzyMatch cterm=NONE ctermbg=0
     endif
     if empty(prop_type_get('FuzzyMatch'))
-      prop_type_add('FuzzyMatch', {highlight: "FuzzyMatch", override: true, priority: 1000, combine: true})
+      prop_type_add('FuzzyMatch', {highlight: "FuzzyMatch", override: true, priority: 999, combine: true})
     endif
-    ch_logfile('/tmp/vim-fuzz.log', 'w')
+    if !hlexists('FuzzyMatchCharacter')
+      hi FuzzyMatchCharacter ctermfg=136 cterm=underline 
+    endif
+    if empty(prop_type_get('FuzzyMatchCharacter'))
+      prop_type_add('FuzzyMatchCharacter', {highlight: "FuzzyMatchCharacter", override: true, priority: 1000, combine: true})
+    endif
 
-    this.__Initialize() # subclass init
+    # debug log
+    ch_logfile('/tmp/vim-fuzzy.log', 'w')
 
-    # after subless init, results[0] will be set to the populated _input_list
-    this._results = [this._input_list]
+    # subclass fuzzy to populate _input_list
+    this.__Initialize() 
+
+    this._WrapResultList()
   enddef
 
   def FormatSelectedItem()
     if (!this._results[0]->empty())
       setbufvar(this._bufnr, '&filetype', '')
       prop_add(this._selected_id + 2, 1, { length: 120, type: 'FuzzyMatch', bufnr: this._bufnr })
+
+      # ch_log("Fuzzy.vim: FormatSelectedItem(): list = '" .. this._results->string() .. "' ")
+
+      if (this._results->len() > 1) # ensure we got a match locations in _result[0]
+        this._results[1]->foreach((lnum, pos_list) => { # iterate over pos list whic stored in _result[1]
+
+            ch_log("Fuzzy.vim: FormatSelectedItem(): line = " .. lnum->string() .. " pos_list = " .. pos_list->string())
+            pos_list->foreach((k, j) => {
+                prop_add(2 + lnum, pos_list[k] + 1, { length: 1, type: 'FuzzyMatchCharacter', bufnr: this._bufnr })
+            })
+        }) 
+      endif
     endif
   enddef
 
@@ -60,14 +97,15 @@ abstract class AbstractFuzzy implements Fuzzy
       this.DoFuzzy(this._searchstr)
     endif
 
-    popup_settext(this._popup_id, [this._prompt .. this._searchstr] + this.GetDisplayList())
+    popup_settext(this._popup_id, [this._prompt .. this._searchstr] + this.GetFormatResultList())
   enddef
 
-  def Search(): void
+  def Search(searchstr: string = ""): void
+    this._searchstr = searchstr # update search string
     this.Initialize() # populate search list
 
     this._popup_id = popup_create( 
-      extend([this._prompt], this.GetDisplayList()), {
+      extend([this._prompt], this.GetFormatResultList()), {
         filter: this._OnKeyDown,
         mapping: 0, 
         filtermode: 'a',
@@ -86,7 +124,7 @@ abstract class AbstractFuzzy implements Fuzzy
   enddef
 
   def _OnKeyDown(winid: number, key: string): bool
-    ch_log("Fuzzy.vim: _OnkeyDown(): key = '" .. key .. "' ")
+    # ch_log("Fuzzy.vim: _OnkeyDown(): key = '" .. key .. "' ")
     return this._handlers.OnKeyDown({
       'key': key,
       'winid': winid, 
@@ -95,8 +133,13 @@ abstract class AbstractFuzzy implements Fuzzy
       'on_item_up_cb': this.SelectedItem_Up,
       'on_item_down_cb': this.SelectedItem_Down,
       'update_cb': this.Update,
-      'format_cb': this.FormatSelectedItem
+      'format_cb': this.FormatSelectedItem,
+      'reset_selected_id': this.ResetSelectedIndex
     })
+  enddef
+
+  def ResetSelectedIndex()
+      this._selected_id = 0
   enddef
 
   def OnEnter()
@@ -107,36 +150,46 @@ abstract class AbstractFuzzy implements Fuzzy
     endif
   enddef
 
-
-  def DoFuzzy(searchstr: string): void
-    this._results = this._input_list->matchfuzzypos(searchstr)
+  def DoFuzzy(searchstr: string)
+    #  _input_list: [{'lnum': 1, 'text': 'clay'}, {'lnum': 2, 'text': 'lacylicyc', 'hj': 55}]
+    #      :echo matchfuzzypos([{'lnum': 1, 'text': 'clay'}, {'lnum': 2, 'text': 'lacylicyc', 'hj': 55}], 'cy', {'key': 'text'})
+    #  _results: [[{'lnum': 2, 'hj': 55, 'text': 'lacylicyc'}, {'lnum': 1, 'text': 'clay'}], [[2, 3], [0, 3]], [173, 157]]
+    this._results = this._input_list->matchfuzzypos(searchstr, {'key': 'text'})
   enddef
 
-  def GetDisplayList(): list<string> 
-    ch_log("Fuzzy.vim: Update(): GetDisplayList()= '" .. this._results[0]->string() .. "' ")
-    return this._results[0]
+  def GetFormatResultList(): list<string> 
+    return this._results[0]->mapnew((_, v) => v.text) # convert from list<dict> to list<string>
   enddef
 
   def GetSelectedItem(): string
-    return this.GetDisplayList()[this._selected_id]
+    return this._results[0][this._selected_id].text
   enddef
 
   def SelectedItem_Down(): void
-    this._selected_id = min([this._selected_id + 1, this.GetDisplayList()->len() - 1])
-    ch_log("Fuzzy.vim: SelectedItem_Down  " .. this._selected_id)
+    this._selected_id = min([this._selected_id + 1, this._results[0]->len() - 1])
+    # ch_log("Fuzzy.vim: SelectedItem_Down  " .. this._selected_id)
   enddef
 
   def SelectedItem_Up(): void
     this._selected_id = max([this._selected_id - 1, 0])
-    ch_log("Fuzzy.vim: SelectedItem_Up  " .. this._selected_id)
+    # ch_log("Fuzzy.vim: SelectedItem_Up  " .. this._selected_id)
   enddef
 
-  def _AsyncRun(cmd: string): void
+  def _AsyncRun(cmd: string = ""): void
+    echo "Loading Input List..."
     timer_start(0, (id) => { # Run & update popup
-      this._input_list = systemlist(cmd)
+      this._timers->extend({id: id})
+      this._PopulateInputList(cmd)
+      this._WrapResultList()
       this.Update()
+      echo ""
     })
   enddef
+
+  def _PopulateInputList(cmd: string = "")
+      this._input_list = systemlist(cmd)
+  enddef
+
 endclass 
 
 abstract class EditFuzzy extends AbstractFuzzy
@@ -145,20 +198,21 @@ abstract class EditFuzzy extends AbstractFuzzy
   enddef
 endclass
 
-export class MRU extends EditFuzzy
+class MRU extends EditFuzzy
   def __Initialize()
     this._input_list = v:oldfiles->copy()->filter((_, v) => filereadable(fnamemodify(v, ":p")))
   enddef
 endclass
 
-export class File extends EditFuzzy
+class Find extends EditFuzzy
   def __Initialize()
-    # this._input_list = getcompletion('', 'file')
-    this._AsyncRun('find ' .. expand('%:p:h'))
+    var pat = this._searchstr->empty() ? "." : this._searchstr
+    this._AsyncRun('find ' .. pat .. ' -type f -not -path "*/\.git/*"')
+    this._searchstr = "" # reset search back to empty, as it not intend to fuzzy search on that path
   enddef
 endclass
 
-export class JumpFuzzy extends AbstractFuzzy
+class JumpFuzzy extends AbstractFuzzy
   def __OnEnter()
     if (!this._results[0]->empty())
       execute($"exec 'normal m`' | :{this._results[0][this._selected_id].lnum} | norm zz")
@@ -166,21 +220,10 @@ export class JumpFuzzy extends AbstractFuzzy
   enddef
 endclass
 
-export class Line extends JumpFuzzy
+class Line extends JumpFuzzy
   def __Initialize()
     # TODO: - Crash at java files Animal.java
     this._input_list = matchbufline(winbufnr(0), '\S.*', 1, '$') 
-  enddef
-
-  def DoFuzzy(searchstr: string)
-    #  _input_list: [{'lnum': 1, 'text': 'clay'}, {'lnum': 2, 'text': 'lacylicyc', 'hj': 55}]
-    #      > matchfuzzypos(_input_list, 'cy', {'key': 'text'})
-    #  _results: [[{'lnum': 2, 'hj': 55, 'text': 'lacylicyc'}, {'lnum': 1, 'text': 'clay'}], [[2, 3], [0, 3]], [173, 157]]
-    this._results = this._input_list->matchfuzzypos(searchstr, {'key': 'text'})
-  enddef
-
-  def GetDisplayList(): list<string> 
-    return this._results[0]->mapnew((_, v) => v.text) # convert from list<dict> to list<string>
   enddef
 endclass
 
@@ -190,26 +233,32 @@ abstract class ExecuteFuzzy extends AbstractFuzzy
   enddef
 endclass
 
-export class CmdHistory extends ExecuteFuzzy
+class CmdHistory extends ExecuteFuzzy
   def __Initialize()
+    this._AsyncRun()
+  enddef
+  def _PopulateInputList(cmd: string)
     this._input_list = [ histget('cmd') ]
-    this._input_list += range(1, histnr('cmd'))->mapnew((_, v) =>  histget('cmd', v) )  
+    this._input_list += range(1, histnr('cmd'))->mapnew((_, v) =>  histget('cmd', v) )  # convert list of id to list of string commands
   enddef
 endclass
 
-export class Cmd extends ExecuteFuzzy
+class Cmd extends ExecuteFuzzy
   def __Initialize()
+    this._AsyncRun()
+  enddef
+  def _PopulateInputList(cmd: string)
     this._input_list = getcompletion('', 'command')
   enddef
 endclass
 
-export class Buffer extends EditFuzzy
+class Buffer extends EditFuzzy
   def __Initialize()
     this._input_list = getcompletion('', 'buffer')->filter((_, v) => bufnr(v) != bufnr())
   enddef
 endclass
 
-export class GitFile extends AbstractFuzzy
+class GitFile extends AbstractFuzzy
   var _file_pwd: string
 
   def __Initialize()
@@ -218,11 +267,22 @@ export class GitFile extends AbstractFuzzy
   enddef
 
   def __OnEnter()
-    execute($"edit {this._file_pwd .. "/" .. this._results[0][this._selected_id]}")
+    # ch_log("Fuzzy.vim: GitFile._OnEnter() this._results[0]" .. this._results[0][this._selected_id]->string())
+    execute($"edit {this._file_pwd .. "/" .. this._results[0][this._selected_id].text}")
   enddef
 
-  def GetDisplayList(): list<string> 
+  def GetFormatResultList(): list<string> 
     # jsut list the file name on ly in the list
-    return this._results[0]->mapnew((_, v) => v->substitute('.*\/\(.*\)$', '\1', ''))
+    return this._results[0]->mapnew((k, v) => v.text->substitute('.*\/\(.*\)$', '\1', ''))
   enddef
+endclass
+
+export class Types 
+  public static final MRU: Fuzzy = MRU.new()
+  public static final Line: Fuzzy = Line.new()
+  public static final Find: Find = Find.new()
+  public static final CmdHistory = CmdHistory.new()
+  public static final Cmd = Cmd.new()
+  public static final Buffer = Buffer.new()
+  public static final GitFile = GitFile.new()
 endclass
