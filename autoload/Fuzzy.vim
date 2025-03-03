@@ -6,7 +6,6 @@ interface Fuzzy
   def Initialize(): void
   def DoFuzzy(searchstr: string)
   def Search(searchstr: string): void
-  def GetFormatResultList(): list<string> 
   def GetSelectedItem(): string 
   def SelectedItem_Down(): void
   def SelectedItem_Up(): void
@@ -16,7 +15,8 @@ abstract class AbstractFuzzy implements Fuzzy
   var _handlers: kh.KeyHandlerManager =  kh.KeyHandlerManagerImpl.new()
   var _selected_id: number = 0  # current selected index
   var _input_list: list<any>    # input list 
-  var _results: list<list<any>> # return by matchfuzzypos()
+  var _results: list<list<any>> # return by matchfuzzypos() when do fuzzy
+  var _format_result_list: list<string> # cached of result list depending on fuzzy type
 
   var _bufnr: number
   var _popup_id: number
@@ -25,7 +25,8 @@ abstract class AbstractFuzzy implements Fuzzy
   var _timers: dict<any> = {}
 
   def __Initialize()
-    echo "Missing internal initialization for input list"
+    # run async to get input by default, unless we expect input list is very small like buffers, windows, etc..
+    this._AsyncRun()
   enddef
 
   # this method is call for initially populating the _input_list
@@ -39,7 +40,7 @@ abstract class AbstractFuzzy implements Fuzzy
         })
     endif
     # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
-    this._results = [this._input_list]
+    this._SetResultList([this._input_list])
     
     this._selected_id = 0 # reset selected id on new popup
   enddef
@@ -73,7 +74,6 @@ abstract class AbstractFuzzy implements Fuzzy
       prop_add(this._selected_id + 2, 1, { length: 120, type: 'FuzzyMatch', bufnr: this._bufnr })
 
       # ch_log("Fuzzy.vim: FormatSelectedItem(): list = '" .. this._results->string() .. "' ")
-
       if (this._results->len() > 1) # ensure we got a match locations in _result[0]
         this._results[1]->foreach((lnum, pos_list) => { # iterate over pos list whic stored in _result[1]
 
@@ -92,12 +92,12 @@ abstract class AbstractFuzzy implements Fuzzy
     this._searchstr = ss
 
     if (this._searchstr->empty()) # searchstr is now empty, restore _input_list
-      this._results = [this._input_list]
+      this._SetResultList([this._input_list])
     else # got a new _searhstr, lets match
       this.DoFuzzy(this._searchstr)
     endif
 
-    popup_settext(this._popup_id, [this._prompt .. this._searchstr] + this.GetFormatResultList())
+    popup_settext(this._popup_id, [this._prompt .. this._searchstr] + this._format_result_list)
   enddef
 
   def Search(searchstr: string = ""): void
@@ -105,7 +105,7 @@ abstract class AbstractFuzzy implements Fuzzy
     this.Initialize() # populate search list
 
     this._popup_id = popup_create( 
-      extend([this._prompt], this.GetFormatResultList()), {
+      extend([this._prompt], this._format_result_list), {
         filter: this._OnKeyDown,
         mapping: 0, 
         filtermode: 'a',
@@ -142,6 +142,11 @@ abstract class AbstractFuzzy implements Fuzzy
       this._selected_id = 0
   enddef
 
+  def _SetResultList(rt: list<any>)
+      this._results = rt
+      this._format_result_list = this._BuildFormatResultList()
+  enddef
+
   def OnEnter()
     if (this._results[0]->empty())
       echo "Nothing to be selected"
@@ -154,12 +159,17 @@ abstract class AbstractFuzzy implements Fuzzy
     #  _input_list: [{'lnum': 1, 'text': 'clay'}, {'lnum': 2, 'text': 'lacylicyc', 'hj': 55}]
     #      :echo matchfuzzypos([{'lnum': 1, 'text': 'clay'}, {'lnum': 2, 'text': 'lacylicyc', 'hj': 55}], 'cy', {'key': 'text'})
     #  _results: [[{'lnum': 2, 'hj': 55, 'text': 'lacylicyc'}, {'lnum': 1, 'text': 'clay'}], [[2, 3], [0, 3]], [173, 157]]
-    this._results = this._input_list->matchfuzzypos(searchstr, {'key': 'text'})
+    this._SetResultList(this._input_list->matchfuzzypos(searchstr, {'key': 'text'}))
   enddef
 
-  def GetFormatResultList(): list<string> 
+  # this function response for what will be display on popup
+  def _BuildFormatResultList(): list<string> 
     return this._results[0]->mapnew((_, v) => v.text) # convert from list<dict> to list<string>
   enddef
+
+  # def GetFormatResultList(): list<string> 
+  #   return this._results[0]->mapnew((_, v) => v.text) # convert from list<dict> to list<string>
+  # enddef
 
   def GetSelectedItem(): string
     return this._results[0][this._selected_id].text
@@ -187,7 +197,7 @@ abstract class AbstractFuzzy implements Fuzzy
   enddef
 
   def _PopulateInputList(cmd: string = "")
-      this._input_list = systemlist(cmd)
+    echo "missing populate input list"
   enddef
 
 endclass 
@@ -222,7 +232,6 @@ endclass
 
 class Line extends JumpFuzzy
   def __Initialize()
-    # TODO: - Crash at java files Animal.java
     this._input_list = matchbufline(winbufnr(0), '\S.*', 1, '$') 
   enddef
 endclass
@@ -234,19 +243,13 @@ abstract class ExecuteFuzzy extends AbstractFuzzy
 endclass
 
 class CmdHistory extends ExecuteFuzzy
-  def __Initialize()
-    this._AsyncRun()
-  enddef
   def _PopulateInputList(cmd: string)
-    this._input_list = [ histget('cmd') ]
-    this._input_list += range(1, histnr('cmd'))->mapnew((_, v) =>  histget('cmd', v) )  # convert list of id to list of string commands
+    # convert list of id to list of string commands
+    this._input_list = [ histget('cmd') ] + range(1, histnr('cmd'))->mapnew((_, v) =>  histget('cmd', v) )  
   enddef
 endclass
 
 class Cmd extends ExecuteFuzzy
-  def __Initialize()
-    this._AsyncRun()
-  enddef
   def _PopulateInputList(cmd: string)
     this._input_list = getcompletion('', 'command')
   enddef
@@ -268,11 +271,17 @@ class GitFile extends AbstractFuzzy
 
   def __OnEnter()
     # ch_log("Fuzzy.vim: GitFile._OnEnter() this._results[0]" .. this._results[0][this._selected_id]->string())
-    execute($"edit {this._file_pwd .. "/" .. this._results[0][this._selected_id].text}")
+    execute($"edit {this._file_pwd .. "/" .. this._results[0][this._selected_id].realtext}")
   enddef
 
-  def GetFormatResultList(): list<string> 
-    # jsut list the file name on ly in the list
+  def _PopulateInputList(cmd: string = "")
+    this._input_list = systemlist(cmd)->mapnew((_, v) => {
+      # store realtext which hold real path of file, it will be used later __OnEnter
+      return {'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}
+    })
+  enddef
+
+  def _BuildFormatResultList(): list<string>
     return this._results[0]->mapnew((k, v) => v.text->substitute('.*\/\(.*\)$', '\1', ''))
   enddef
 endclass

@@ -20,3 +20,6 @@ nn ,h <cmd>FuzzyCmdHistory<cr>
 nn ,x <cmd>FuzzyCmd<cr>
 nn ,z <cmd>FuzzyBuffer<cr>
 nn ,g <cmd>FuzzyGitFile<cr>
+
+
+# type ,g & d -> fail
