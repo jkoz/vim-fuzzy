@@ -22,7 +22,10 @@ abstract class AbstractFuzzy implements Fuzzy
   var _popup_id: number
   var _prompt: string = ">> "
   var _searchstr: string
-  var _timers: dict<any> = {}
+
+  def LogMsg(...msgs: list<string>)
+    ch_log("vim-fuzzy.vim > " .. msgs->reduce((a, v) => a .. " > " .. v) )
+  enddef
 
   def __Initialize()
     # run async to get input by default, unless we expect input list is very small like buffers, windows, etc..
@@ -78,7 +81,7 @@ abstract class AbstractFuzzy implements Fuzzy
       if (this._results->len() > 1) # ensure we got a match locations in _result[0]
         this._results[1]->foreach((lnum, pos_list) => { # iterate over pos list whic stored in _result[1]
 
-            ch_log("Fuzzy.vim: FormatSelectedItem(): line = " .. lnum->string() .. " pos_list = " .. pos_list->string())
+            # ch_log("Fuzzy.vim: FormatSelectedItem(): line = " .. lnum->string() .. " pos_list = " .. pos_list->string())
             pos_list->foreach((k, j) => {
                 prop_add(2 + lnum, pos_list[k] + 1, { length: 1, type: 'FuzzyMatchCharacter', bufnr: this._bufnr })
             })
@@ -191,7 +194,7 @@ abstract class AbstractFuzzy implements Fuzzy
   def _AsyncRun(cmd: string = ""): void
     echo "Loading Input List..."
     timer_start(0, (id) => { # Run & update popup
-      this._timers->extend({id: id})
+      this.LogMsg('AsyncRun()', cmd)
       this._PopulateInputList(cmd)
       this._WrapResultList()
       this.Update()
@@ -219,9 +222,12 @@ endclass
 
 class Find extends EditFuzzy
   def __Initialize()
-    var pat = this._searchstr->empty() ? "." : this._searchstr
+    var pat = this._searchstr->empty() ? expand('%:p:h') : this._searchstr
     this._AsyncRun('find ' .. pat .. ' -type f -not -path "*/\.git/*"')
     this._searchstr = "" # reset search back to empty, as it not intend to fuzzy search on that path
+  enddef
+  def _PopulateInputList(cmd: string = "")
+    this._input_list = systemlist(cmd)
   enddef
 endclass
 
@@ -290,9 +296,9 @@ class GitFile extends AbstractFuzzy
 endclass
 
 export class Types 
-  public static final MRU: Fuzzy = MRU.new()
-  public static final Line: Fuzzy = Line.new()
-  public static final Find: Find = Find.new()
+  public static final MRU = MRU.new()
+  public static final Line = Line.new()
+  public static final Find = Find.new()
   public static final CmdHistory = CmdHistory.new()
   public static final Cmd = Cmd.new()
   public static final Buffer = Buffer.new()
