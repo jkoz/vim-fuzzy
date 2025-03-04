@@ -47,7 +47,8 @@ abstract class AbstractFuzzy implements Fuzzy
 
   def Initialize()
     if !hlexists('FuzzyMatch')
-      hi FuzzyMatch cterm=NONE ctermbg=0
+      # hi FuzzyMatch cterm=NONE ctermbg=0
+      hi FuzzyMatch term=reverse cterm=reverse ctermfg=64 ctermbg=0 guibg=DarkGrey
     endif
     if empty(prop_type_get('FuzzyMatch'))
       prop_type_add('FuzzyMatch', {highlight: "FuzzyMatch", override: true, priority: 999, combine: true})
@@ -98,6 +99,9 @@ abstract class AbstractFuzzy implements Fuzzy
     endif
 
     popup_settext(this._popup_id, [this._prompt .. this._searchstr] + this._format_result_list)
+
+    # after set new result list, format it right away
+    this.FormatSelectedItem()
   enddef
 
   def Search(searchstr: string = ""): void
@@ -133,7 +137,6 @@ abstract class AbstractFuzzy implements Fuzzy
       'on_item_up_cb': this.SelectedItem_Up,
       'on_item_down_cb': this.SelectedItem_Down,
       'update_cb': this.Update,
-      'format_cb': this.FormatSelectedItem,
       'reset_selected_id': this.ResetSelectedIndex
     })
   enddef

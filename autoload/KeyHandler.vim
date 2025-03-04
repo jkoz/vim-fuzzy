@@ -63,7 +63,6 @@ export class UpHandler extends AbstractKeyHandler
   def __Accept(props: dict<any>): bool
     props.on_item_up_cb()
     props.update_cb(props.searchstr) 
-    props.format_cb()
     return true
   enddef
 endclass
@@ -75,7 +74,6 @@ export class DownHandler extends AbstractKeyHandler
   def __Accept(props: dict<any>): bool
     props.on_item_down_cb()
     props.update_cb(props.searchstr) 
-    props.format_cb()
     return true
   enddef
 endclass
@@ -84,7 +82,6 @@ export class RegularKeyHandler implements KeyHandler
   def Accept(props: dict<any>): bool
     props.reset_selected_id()
     props.update_cb(props.searchstr .. props.key)
-    props.format_cb()
     return true
   enddef
 endclass
@@ -95,7 +92,6 @@ export class DeleteHandler extends AbstractKeyHandler
   enddef
   def __Accept(props: dict<any>): bool
     props.update_cb(props.searchstr->substitute(".$", "", ""))
-    props.format_cb()
     return true
   enddef
 endclass
