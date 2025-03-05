@@ -10,38 +10,46 @@ const KEYS = {
 }
 
 export interface KeyHandler
-  def Accept(props: dict<any>): bool
+  def Accept(params: dict<any>): bool
 endinterface
 
 export interface KeyHandlerManager
-  def OnKeyDown(props: dict<any>): bool
+  def OnKeyDown(params: dict<any>): bool
 endinterface
 
 
 abstract class AbstractKeyHandler implements KeyHandler
   var _key_list: list<string>
+  var _params: dict<any>
 
-  def Accept(props: dict<any>): bool
-    if (this._key_list->index(props.key) > -1)
-      return this.__Accept(props)
+  def _GetFuzzy(): any
+    return this._params.fuzzy
+  enddef
+
+  def _GetKey(): string
+    return this._params.key
+  enddef
+
+  def Accept(params: dict<any>): bool
+    this._params = params
+
+    # key list empty is regular key
+    if (this._key_list->empty() || this._key_list->index(this._GetKey()) > -1)
+      this._OnAccept()
+      return true
     endif
     return false
   enddef
 
-  def __Accept(props: dict<any>): bool
-    return true
-  enddef
-
+  abstract def _OnAccept(): void 
 endclass
 
 export class EnterHandler extends AbstractKeyHandler
   def new()
     this._key_list = KEYS.Enter
   enddef
-  def __Accept(props: dict<any>): bool
-    props.on_enter_cb()
-    popup_close(props.winid)
-    return true
+  def _OnAccept()
+    this._GetFuzzy().Enter()
   enddef
 endclass
 
@@ -50,9 +58,8 @@ export class CancelHandler extends AbstractKeyHandler
     this._key_list = KEYS.Cancel
   enddef
 
-  def __Accept(props: dict<any>): bool
-    popup_close(props.winid)
-    return true
+  def _OnAccept()
+    this._GetFuzzy().Cancel()
   enddef
 endclass
 
@@ -60,10 +67,8 @@ export class UpHandler extends AbstractKeyHandler
   def new()
     this._key_list = KEYS.Up
   enddef
-  def __Accept(props: dict<any>): bool
-    props.on_item_up_cb()
-    props.update_cb(props.searchstr) 
-    return true
+  def _OnAccept()
+    this._GetFuzzy().Up()
   enddef
 endclass
 
@@ -71,18 +76,15 @@ export class DownHandler extends AbstractKeyHandler
   def new()
     this._key_list = KEYS.Down
   enddef
-  def __Accept(props: dict<any>): bool
-    props.on_item_down_cb()
-    props.update_cb(props.searchstr) 
-    return true
+  def _OnAccept()
+    this._GetFuzzy().Down()
   enddef
 endclass
 
-export class RegularKeyHandler implements KeyHandler
-  def Accept(props: dict<any>): bool
-    props.reset_selected_id()
-    props.update_cb(props.searchstr .. props.key)
-    return true
+export class RegularKeyHandler extends AbstractKeyHandler
+  def _OnAccept()
+    this._GetFuzzy().ResetSelectedIndex()
+    this._GetFuzzy().SetSearchString((s: string) => s .. this._GetKey())
   enddef
 endclass
 
@@ -90,9 +92,8 @@ export class DeleteHandler extends AbstractKeyHandler
   def new()
     this._key_list = KEYS.Delete
   enddef
-  def __Accept(props: dict<any>): bool
-    props.update_cb(props.searchstr->substitute(".$", "", ""))
-    return true
+  def _OnAccept()
+    this._GetFuzzy().SetSearchString((s: string) => s->substitute(".$", "", ""))
   enddef
 endclass
 
@@ -107,9 +108,9 @@ export class KeyHandlerManagerImpl implements KeyHandlerManager
     RegularKeyHandler.new(),
   ]
 
-  def OnKeyDown(props: dict<any>): bool
+  def OnKeyDown(params: dict<any>): bool
     for item in KeyHandlerManagerImpl.Handlers
-      if (item.Accept(props))
+      if (item.Accept(params))
         return true
       endif
     endfor

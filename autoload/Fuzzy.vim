@@ -2,13 +2,13 @@ vim9script
 
 import autoload "./KeyHandler.vim" as kh
 
-interface Fuzzy
-  def Initialize(): void
-  def DoFuzzy(searchstr: string)
-  def Search(searchstr: string): void
-  def GetSelectedItem(): string 
-  def SelectedItem_Down(): void
-  def SelectedItem_Up(): void
+export interface Fuzzy
+  def Enter()
+  def Cancel()
+  def Down(): void
+  def Up(): void
+  def SetSearchString(Cb: func(string): string)
+  def ResetSelectedIndex()
 endinterface
 
 abstract class AbstractFuzzy implements Fuzzy
@@ -90,10 +90,13 @@ abstract class AbstractFuzzy implements Fuzzy
     endif
   enddef
 
+  def SetSearchString(Cb: func(string): string)
+    this._searchstr = Cb(this._searchstr) 
+    this.Update()
+  enddef
+
   # if up/down call update, there is no update on searchstr
-  def Update(ss: string = this._searchstr)
-    # update latest search string from RegularKeyHandler
-    this._searchstr = ss
+  def Update()
 
     if (this._searchstr->empty()) # searchstr is now empty, restore _input_list
       this._SetResultList([this._input_list])
@@ -132,16 +135,7 @@ abstract class AbstractFuzzy implements Fuzzy
 
   def _OnKeyDown(winid: number, key: string): bool
     # ch_log("Fuzzy.vim: _OnkeyDown(): key = '" .. key .. "' ")
-    return this._handlers.OnKeyDown({
-      'key': key,
-      'winid': winid, 
-      'searchstr': this._searchstr,
-      'on_enter_cb': this.OnEnter,
-      'on_item_up_cb': this.SelectedItem_Up,
-      'on_item_down_cb': this.SelectedItem_Down,
-      'update_cb': this.Update,
-      'reset_selected_id': this.ResetSelectedIndex
-    })
+    return this._handlers.OnKeyDown({ 'key': key, 'winid': winid, 'fuzzy': this })
   enddef
 
   def ResetSelectedIndex()
@@ -153,12 +147,17 @@ abstract class AbstractFuzzy implements Fuzzy
       this._format_result_list = this._BuildFormatResultList()
   enddef
 
-  def OnEnter()
+  def Enter()
     if (this._results[0]->empty())
       echo "Nothing to be selected"
     else
-      this.__OnEnter()
+      this._OnEnter()
+      popup_close(this._popup_id)
     endif
+  enddef
+
+  def Cancel()
+      popup_close(this._popup_id)
   enddef
 
   def DoFuzzy(searchstr: string)
@@ -181,14 +180,15 @@ abstract class AbstractFuzzy implements Fuzzy
     return this._results[0][this._selected_id].text
   enddef
 
-  def SelectedItem_Down(): void
+  def Down(): void
     this._selected_id = min([this._selected_id + 1, this._results[0]->len() - 1])
-    # ch_log("Fuzzy.vim: SelectedItem_Down  " .. this._selected_id)
+    this.Update()
+    # ch_log("Fuzzy.vim: Down" .. this._selected_id)
   enddef
 
-  def SelectedItem_Up(): void
+  def Up(): void
     this._selected_id = max([this._selected_id - 1, 0])
-    # ch_log("Fuzzy.vim: SelectedItem_Up  " .. this._selected_id)
+    this.Update()
   enddef
 
   def _AsyncRun(cmd: string = ""): void
@@ -209,7 +209,7 @@ abstract class AbstractFuzzy implements Fuzzy
 endclass 
 
 abstract class EditFuzzy extends AbstractFuzzy
-  def __OnEnter()
+  def _OnEnter()
     execute($"edit {this.GetSelectedItem()}")
   enddef
 endclass
@@ -232,7 +232,7 @@ class Find extends EditFuzzy
 endclass
 
 class JumpFuzzy extends AbstractFuzzy
-  def __OnEnter()
+  def _OnEnter()
     if (!this._results[0]->empty())
       execute($"exec 'normal m`' | :{this._results[0][this._selected_id].lnum} | norm zz")
     endif
@@ -246,7 +246,7 @@ class Line extends JumpFuzzy
 endclass
 
 abstract class ExecuteFuzzy extends AbstractFuzzy
-  def __OnEnter()
+  def _OnEnter()
     feedkeys(":" .. this.GetSelectedItem(), "n") # feed keys to command only, don't execute it 
   enddef
 endclass
@@ -278,14 +278,14 @@ class GitFile extends AbstractFuzzy
     this._AsyncRun('git -C ' .. this._file_pwd .. ' ls-files `git -C ' .. this._file_pwd .. ' rev-parse --show-toplevel`')
   enddef
 
-  def __OnEnter()
+  def _OnEnter()
     # ch_log("Fuzzy.vim: GitFile._OnEnter() this._results[0]" .. this._results[0][this._selected_id]->string())
     execute($"edit {this._file_pwd .. "/" .. this._results[0][this._selected_id].realtext}")
   enddef
 
   def _PopulateInputList(cmd: string = "")
     this._input_list = systemlist(cmd)->mapnew((_, v) => {
-      # store realtext which hold real path of file, it will be used later __OnEnter
+      # store realtext which hold real path of file, it will be used later _OnEnter
       return {'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}
     })
   enddef
