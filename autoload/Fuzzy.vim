@@ -1,15 +1,6 @@
 vim9script 
 
-export interface Fuzzy
-  def Enter()
-  def Cancel()
-  def Down(): void
-  def Up(): void
-  def SetSearchString(Cb: func(string): string)
-  def ResetSelectedIndex()
-endinterface
-
-abstract class AbstractFuzzy implements Fuzzy
+abstract class AbstractFuzzy 
   var _key_maps: list<dict<any>> = [
     { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
     { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
@@ -97,11 +88,6 @@ abstract class AbstractFuzzy implements Fuzzy
     endif
   enddef
 
-  def SetSearchString(Cb: func(string): string)
-    this._searchstr = Cb(this._searchstr) 
-    this.Update()
-  enddef
-
   # if up/down call update, there is no update on searchstr
   def Update()
 
@@ -152,10 +138,6 @@ abstract class AbstractFuzzy implements Fuzzy
     return false
   enddef
 
-  def ResetSelectedIndex()
-      this._selected_id = 0
-  enddef
-
   def _SetResultList(rt: list<any>)
       this._results = rt
       this._format_result_list = this._BuildFormatResultList()
@@ -195,12 +177,14 @@ abstract class AbstractFuzzy implements Fuzzy
   enddef
 
   def Regular(): void
-    this.ResetSelectedIndex()
-    this.SetSearchString((s: string) => s .. this._key)
+    this._selected_id = 0
+    this._searchstr = this._searchstr .. this._key
+    this.Update()
   enddef 
 
   def Delete(): void
-    this.SetSearchString((s: string) => s->substitute(".$", "", ""))
+    this._searchstr = this._searchstr->substitute(".$", "", "")
+    this.Update()
   enddef
 
   def Down(): void
@@ -323,13 +307,4 @@ export class GitFile extends AbstractFuzzy
   def _BuildFormatResultList(): list<string>
     return this._results[0]->mapnew((k, v) => v.text->substitute('.*\/\(.*\)$', '\1', ''))
   enddef
-endclass
-
-export class Types 
-  public static final Line = Line.new()
-  public static final Find = Find.new()
-  public static final CmdHistory = CmdHistory.new()
-  public static final Cmd = Cmd.new()
-  public static final Buffer = Buffer.new()
-  public static final GitFile = GitFile.new()
 endclass
