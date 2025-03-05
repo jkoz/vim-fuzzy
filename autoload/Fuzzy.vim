@@ -48,7 +48,6 @@ abstract class AbstractFuzzy
 
   def Initialize()
     if !hlexists('FuzzyMatch')
-      # hi FuzzyMatch cterm=NONE ctermbg=0
       hi FuzzyMatch term=reverse cterm=reverse ctermfg=64 ctermbg=0 guibg=DarkGrey
     endif
     if empty(prop_type_get('FuzzyMatch'))
@@ -61,7 +60,6 @@ abstract class AbstractFuzzy
       prop_type_add('FuzzyMatchCharacter', {highlight: "FuzzyMatchCharacter", override: true, priority: 1000, combine: true})
     endif
 
-    # debug log
     ch_logfile('/tmp/vim-fuzzy.log', 'w')
 
     # subclass fuzzy to populate _input_list
@@ -70,16 +68,13 @@ abstract class AbstractFuzzy
     this._WrapResultList()
   enddef
 
-  def FormatSelectedItem()
+  def Format()
     if (!this._results[0]->empty())
       setbufvar(this._bufnr, '&filetype', '')
       prop_add(this._selected_id + 2, 1, { length: 120, type: 'FuzzyMatch', bufnr: this._bufnr })
 
-      # ch_log("Fuzzy.vim: FormatSelectedItem(): list = '" .. this._results->string() .. "' ")
       if (this._results->len() > 1) # ensure we got a match locations in _result[0]
         this._results[1]->foreach((lnum, pos_list) => { # iterate over pos list whic stored in _result[1]
-
-            # ch_log("Fuzzy.vim: FormatSelectedItem(): line = " .. lnum->string() .. " pos_list = " .. pos_list->string())
             pos_list->foreach((k, j) => {
                 prop_add(2 + lnum, pos_list[k] + 1, { length: 1, type: 'FuzzyMatchCharacter', bufnr: this._bufnr })
             })
@@ -88,9 +83,7 @@ abstract class AbstractFuzzy
     endif
   enddef
 
-  # if up/down call update, there is no update on searchstr
   def Update()
-
     if (this._searchstr->empty()) # searchstr is now empty, restore _input_list
       this._SetResultList([this._input_list])
     else # got a new _searhstr, lets match
@@ -100,7 +93,7 @@ abstract class AbstractFuzzy
     popup_settext(this._popup_id, [this._prompt .. this._searchstr] + this._format_result_list)
 
     # after set new result list, format it right away
-    this.FormatSelectedItem()
+    this.Format()
   enddef
 
   def Search(searchstr: string = ""): void
@@ -123,11 +116,10 @@ abstract class AbstractFuzzy
       })
 
     this._bufnr = winbufnr(this._popup_id)
-    this.FormatSelectedItem()  # we have initial _input_list, high light first item right away
+    this.Format()  # we have initial _input_list, high light first item right away
   enddef
 
   def _OnKeyDown(winid: number, key: string): bool
-    # ch_log("Fuzzy.vim: _OnkeyDown(): key = '" .. key .. "' ")
     this._key = key
     for item in this._key_maps
       if (item.keys->empty() || item.keys->index(key) > -1)
@@ -168,10 +160,6 @@ abstract class AbstractFuzzy
     return this._results[0]->mapnew((_, v) => v.text) # convert from list<dict> to list<string>
   enddef
 
-  # def GetFormatResultList(): list<string> 
-  #   return this._results[0]->mapnew((_, v) => v.text) # convert from list<dict> to list<string>
-  # enddef
-
   def GetSelectedItem(): string
     return this._results[0][this._selected_id].text
   enddef
@@ -190,7 +178,6 @@ abstract class AbstractFuzzy
   def Down(): void
     this._selected_id = min([this._selected_id + 1, this._results[0]->len() - 1])
     this.Update()
-    # ch_log("Fuzzy.vim: Down" .. this._selected_id)
   enddef
 
   def Up(): void
@@ -293,7 +280,6 @@ export class GitFile extends AbstractFuzzy
   enddef
 
   def _OnEnter()
-    # ch_log("Fuzzy.vim: GitFile._OnEnter() this._results[0]" .. this._results[0][this._selected_id]->string())
     execute($"edit {this._file_pwd .. "/" .. this._results[0][this._selected_id].realtext}")
   enddef
 
