@@ -5,13 +5,13 @@ g:loaded_fuzzy = 1
 
 import autoload "Fuzzy.vim"
 
-com! FuzzyMRU Fuzzy.Types.MRU.Search() 
-com! FuzzyLine Fuzzy.Types.Line.Search() 
-com! -nargs=* -complete=dir FuzzyFind Fuzzy.Types.Find.Search(<q-args>) 
-com! FuzzyCmdHistory Fuzzy.Types.CmdHistory.Search() 
-com! FuzzyCmd Fuzzy.Types.Cmd.Search() 
-com! FuzzyBuffer Fuzzy.Types.Buffer.Search() 
-com! FuzzyGitFile Fuzzy.Types.GitFile.Search() 
+com! FuzzyMRU Fuzzy.MRU.Instance.Search() 
+com! FuzzyLine Fuzzy.Line.Instance.Search() 
+com! -nargs=* -complete=dir FuzzyFind Fuzzy.Find.Instance.Search(<q-args>) 
+com! FuzzyCmdHistory Fuzzy.CmdHistory.Instance.Search() 
+com! FuzzyCmd Fuzzy.Cmd.Instance.Search() 
+com! FuzzyBuffer Fuzzy.Buffer.Instance.Search() 
+com! FuzzyGitFile Fuzzy.GitFile.Instance.Search() 
 
 nn ,m <cmd>FuzzyMRU<cr>
 nn ,l <cmd>FuzzyLine<cr>

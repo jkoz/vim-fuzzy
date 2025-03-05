@@ -1,7 +1,5 @@
 vim9script 
 
-import autoload "./KeyHandler.vim" as kh
-
 export interface Fuzzy
   def Enter()
   def Cancel()
@@ -12,7 +10,15 @@ export interface Fuzzy
 endinterface
 
 abstract class AbstractFuzzy implements Fuzzy
-  var _handlers: kh.KeyHandlerManager =  kh.KeyHandlerManagerImpl.new()
+  var _key_maps: list<dict<any>> = [
+    { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
+    { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
+    { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>"], 'cb': this.Up},
+    { 'keys': ["\<C-n>", "\<Tab>", "\<Down>"], 'cb': this.Down},
+    { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete},
+    { 'keys': [], 'cb': this.Regular},
+  ]
+
   var _selected_id: number = 0  # current selected index
   var _input_list: list<any>    # input list 
   var _results: list<list<any>> # return by matchfuzzypos() when do fuzzy
@@ -22,6 +28,7 @@ abstract class AbstractFuzzy implements Fuzzy
   var _popup_id: number
   var _prompt: string = ">> "
   var _searchstr: string
+  var _key: string # user input key
 
   def LogMsg(...msgs: list<string>)
     ch_log("vim-fuzzy.vim > " .. msgs->reduce((a, v) => a .. " > " .. v) )
@@ -135,7 +142,14 @@ abstract class AbstractFuzzy implements Fuzzy
 
   def _OnKeyDown(winid: number, key: string): bool
     # ch_log("Fuzzy.vim: _OnkeyDown(): key = '" .. key .. "' ")
-    return this._handlers.OnKeyDown({ 'key': key, 'winid': winid, 'fuzzy': this })
+    this._key = key
+    for item in this._key_maps
+      if (item.keys->empty() || item.keys->index(key) > -1)
+        item.cb()
+        return true
+      endif
+    endfor
+    return false
   enddef
 
   def ResetSelectedIndex()
@@ -180,6 +194,15 @@ abstract class AbstractFuzzy implements Fuzzy
     return this._results[0][this._selected_id].text
   enddef
 
+  def Regular(): void
+    this.ResetSelectedIndex()
+    this.SetSearchString((s: string) => s .. this._key)
+  enddef 
+
+  def Delete(): void
+    this.SetSearchString((s: string) => s->substitute(".$", "", ""))
+  enddef
+
   def Down(): void
     this._selected_id = min([this._selected_id + 1, this._results[0]->len() - 1])
     this.Update()
@@ -214,13 +237,15 @@ abstract class EditFuzzy extends AbstractFuzzy
   enddef
 endclass
 
-class MRU extends EditFuzzy
+export class MRU extends EditFuzzy
+  public static final Instance: MRU = MRU.new()
   def __Initialize()
     this._input_list = v:oldfiles->copy()->filter((_, v) => filereadable(fnamemodify(v, ":p")))
   enddef
 endclass
 
-class Find extends EditFuzzy
+export class Find extends EditFuzzy
+  public static final Instance: Find = Find.new()
   def __Initialize()
     var pat = this._searchstr->empty() ? expand('%:p:h') : this._searchstr
     this._AsyncRun('find ' .. pat .. ' -type f -not -path "*/\.git/*"')
@@ -239,7 +264,8 @@ class JumpFuzzy extends AbstractFuzzy
   enddef
 endclass
 
-class Line extends JumpFuzzy
+export class Line extends JumpFuzzy
+  public static final Instance: Line = Line.new()
   def __Initialize()
     this._input_list = matchbufline(winbufnr(0), '\S.*', 1, '$') 
   enddef
@@ -251,26 +277,30 @@ abstract class ExecuteFuzzy extends AbstractFuzzy
   enddef
 endclass
 
-class CmdHistory extends ExecuteFuzzy
+export class CmdHistory extends ExecuteFuzzy
+  public static final Instance: CmdHistory = CmdHistory.new()
   def _PopulateInputList(cmd: string)
     # convert list of id to list of string commands
     this._input_list = [ histget('cmd') ] + range(1, histnr('cmd'))->mapnew((_, v) =>  histget('cmd', v) )  
   enddef
 endclass
 
-class Cmd extends ExecuteFuzzy
+export class Cmd extends ExecuteFuzzy
+  public static final Instance: Cmd = Cmd.new()
   def _PopulateInputList(cmd: string)
     this._input_list = getcompletion('', 'command')
   enddef
 endclass
 
-class Buffer extends EditFuzzy
+export class Buffer extends EditFuzzy
+  public static final Instance: Buffer = Buffer.new()
   def __Initialize()
     this._input_list = getcompletion('', 'buffer')->filter((_, v) => bufnr(v) != bufnr())
   enddef
 endclass
 
-class GitFile extends AbstractFuzzy
+export class GitFile extends AbstractFuzzy
+  public static final Instance: GitFile = GitFile.new()
   var _file_pwd: string
 
   def __Initialize()
@@ -296,7 +326,6 @@ class GitFile extends AbstractFuzzy
 endclass
 
 export class Types 
-  public static final MRU = MRU.new()
   public static final Line = Line.new()
   public static final Find = Find.new()
   public static final CmdHistory = CmdHistory.new()
