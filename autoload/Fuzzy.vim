@@ -9,24 +9,49 @@ class Logger
   enddef
 endclass
 
+interface MessageHandler
+  def OnStdOut(ch: channel, msg: string)
+  def OnStdErr(ch: channel, msg: string)
+  def OnExit(ch: job, status: number)
+endinterface
+
+class Job
+  var _job: job
+  var _handler: MessageHandler
+  def new(s: MessageHandler)
+    this._handler = s
+  enddef
+  def Start(cmd: string)
+    this._job = job_start(cmd, {out_cb: this._handler.OnStdOut, err_cb: this._handler.OnStdErr, exit_cb: this._handler.OnExit})
+  enddef
+  def IsDead(): bool
+    return job_status(this._job) ==# 'dead'
+  enddef
+endclass
+
 interface Runnable
   def Run()
 endinterface
 
 class Timer
-  var _logger: Logger
+  # var _logger: Logger
+  var _delay: number
   var _name: string
   var _runnable: Runnable
-  def new(name: string, runnable: Runnable)
-    this._logger = Logger.new()
+  var _options: dict<any>
+  var _timerId: number
+  def new(name: string, runnable: Runnable, delay: number = 0, repeat: number = 0)
+    # this._logger = Logger.new()
+    this._delay = delay
     this._name = name
     this._runnable = runnable
+    this._options = { 'repeat': repeat }
   enddef
   def Start()
     try
-      this._logger.Debug('Timer.Start() ' .. this._name .. ' runnable ' .. this._runnable->string())
+      # this._logger.Debug('Timer.Start() ' .. this._name .. ' runnable ' .. this._runnable->string())
       echo "..." # just indication for now which command is run async
-      timer_start(0, this._HandleTimer)
+      this._timerId = timer_start(this._delay, this._HandleTimer, this._options)
     catch
       echom 'Error from ' .. this._name .. ': ' .. v:exception->string()
     endtry
@@ -34,6 +59,12 @@ class Timer
   def _HandleTimer(timerId: number)
     this._runnable.Run()
   enddef
+  def Stop()
+    timer_stop(this._timerId)
+  enddef
+endclass
+
+class Channel
 endclass
 
 abstract class AbstractFuzzy
@@ -45,8 +76,8 @@ abstract class AbstractFuzzy
     { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'upd': this.Update},
     { 'keys': [], 'cb': this.Regular, 'upd': this.Update}]
   var _selected_id: number = 0  # current selected index
-  var _input_list: list<any>    # input list 
-  var _results: list<list<any>> # return by matchfuzzypos() when do fuzzy
+  var _input_list: list<any> = []   # input list 
+  var _results: list<list<any>> = [] # return by matchfuzzypos() when do fuzzy
   var _format_result_list: list<string> # cached of result list depending on fuzzy type
   var _bufnr: number
   var _popup_id: number
@@ -178,18 +209,45 @@ export class MRU extends EditFuzzy
   enddef
 endclass
 
-export class Find extends EditFuzzy implements Runnable
+export class Find extends EditFuzzy implements Runnable, MessageHandler
   public static final Instance: Find = Find.new()
+  public static final L: Logger = Logger.new()
+  var _job: Job = Job.new(this)
+  var _poll_timer: Timer 
 
   def __Initialize()
     var pat = this._searchstr->empty() ? expand('%:p:h') : this._searchstr
     this._cmd = 'find ' .. pat .. ' -type f -not -path "*/\.git/*"'
-    Timer.new("Find", this).Start()
+    this._searchstr = "" # reset search back to empty, as it not intend to fuzzy search on that path
+
+    this._input_list = [] # reset the list as we start a new search
+    this._job.Start(this._cmd) 
+    this._poll_timer = Timer.new('Poll timer', this, 100, -1)
+    this._poll_timer.Start()
   enddef
   def Run()
-    this._input_list = systemlist(this._cmd)
-    this._searchstr = "" # reset search back to empty, as it not intend to fuzzy search on that path
-    this._UpdatePopupFromTimer()
+    if (popup_getpos(this._popup_id)->empty())
+      this._poll_timer.Stop()
+      L.Debug("Popup close, killed polling timer")
+      return
+    endif
+
+    if (this._job.IsDead() && !this._input_list->empty())
+      this._poll_timer.Stop()
+      L.Debug("Job done, got result, killed polling timer")
+    endif
+
+    # update new polled list, format display, highlight & setpopup_text
+    this._results = [this._input_list] 
+    this._FormatResultList()
+    this.Update()
+  enddef
+  def OnStdOut(ch: channel, msg: string)
+    this._input_list->add({ 'text': msg })
+  enddef
+  def OnStdErr(ch: channel, msg: string)
+  enddef
+  def OnExit(ch: job, status: number)
   enddef
 endclass
 
