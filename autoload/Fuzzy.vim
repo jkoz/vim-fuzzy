@@ -80,7 +80,7 @@ abstract class AbstractFuzzy
     { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
     { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>"], 'cb': this.Up, 'format': this.Format},
     { 'keys': ["\<C-n>", "\<Tab>", "\<Down>"], 'cb': this.Down, 'format': this.Format},
-    { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText, 'format': this.Format}, 
+    { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match3, 'settext': this.SetText, 'format': this.Format}, 
     { 'keys': [], 'cb': this.Regular, 'match': this.Match2, 'settext': this.SetText, 'format': this.Format }]
   var _selected_id: number = 0  # current selected index
   var _input_list: list<any>  # input list 
@@ -91,7 +91,7 @@ abstract class AbstractFuzzy
   var _searchstr: string
   var _key: string # user input key
   var _cmd: string # external commands, grep, find, etc.
-  # var _cache_list: list<dict<any>> = []
+  var _cache_list: list<list<any>> = []
 
   def Init()
   enddef
@@ -130,22 +130,27 @@ abstract class AbstractFuzzy
 
   def Match2() # this will perform fuzzy search on previous results
     this._results = this._results[0]->matchfuzzypos(this._searchstr, {'key': 'text'})
+    this._cache_list->add(this._results[0])
   enddef
 
   def Match()
+    this._results = this._searchstr->empty() ? [this._input_list] : this._input_list->matchfuzzypos(this._searchstr, {'key': 'text'})
+  enddef         
+
+  def Match3()
     if (this._searchstr->empty()) # user delete all the searchstr, or just start up
       this._results = [this._input_list]
       return
     endif
     
     # got searchstr, try pull from cache if any
-    # if (!this._cache_list->empty()) 
-    #     this._results = this._cache_list->remove(-1).results
-    #     return
-    # endif
+    if (!this._cache_list->empty()) 
+        this._results[0] = this._cache_list->remove(-1)
+    endif
 
-    this._results = this._input_list->matchfuzzypos(this._searchstr, {'key': 'text'})
-  enddef
+    # rematch on smaller list from cached
+    this._results = this._results[0]->matchfuzzypos(this._searchstr, {'key': 'text'})
+  enddef         
 
   def _UpdatePopupFromTimer() # Runnable implement for subclass that run async
     this._WrapResultList()
@@ -283,7 +288,7 @@ export class Find extends AbstractFuzzy implements Runnable, MessageHandler
 
     if (this._job.IsDead())
       this._poll_timer.Stop()
-     this.L.Debug("Job done, got result, killed polling timer")
+      this.L.Debug("Job done, got result, killed polling timer")
     endif
 
     this._results[0] += this._input_list
