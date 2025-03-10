@@ -23,14 +23,21 @@ nn ,z <cmd>FuzzyBuffer<cr>
 nn ,g <cmd>FuzzyGitFile<cr>
 
 if !hlexists('FuzzyMatch')
-  hi FuzzyMatch term=None cterm=None ctermfg=12 ctermbg=0
-endif
-if empty(prop_type_get('FuzzyMatch'))
-  prop_type_add('FuzzyMatch', {highlight: "FuzzyMatch", override: true, priority: 999, combine: true})
+  hi FuzzyMatch term=inverse cterm=inverse ctermfg=64 ctermbg=0
 endif
 if !hlexists('FuzzyMatchCharacter')
   hi FuzzyMatchCharacter ctermfg=136 cterm=underline 
 endif
+if !hlexists('FuzzyBorderNormal')
+  hi FuzzyBorderNormal ctermfg=64 cterm=none
+endif
+
+if empty(prop_type_get('FuzzyMatch'))
+  prop_type_add('FuzzyMatch', {highlight: "FuzzyMatch", override: true, priority: 999, combine: true})
+endif
 if empty(prop_type_get('FuzzyMatchCharacter'))
   prop_type_add('FuzzyMatchCharacter', {highlight: "FuzzyMatchCharacter", override: true, priority: 1000, combine: true})
+endif
+if empty(prop_type_get('FuzzyBorderNormal'))
+  prop_type_add('FuzzyBorderNormal', {highlight: "FuzzyBorderNormal", override: true, priority: 1000, combine: true})
 endif

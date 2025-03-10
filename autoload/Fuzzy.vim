@@ -81,7 +81,7 @@ abstract class AbstractFuzzy
     { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>"], 'cb': this.Up, 'format': this.Format},
     { 'keys': ["\<C-n>", "\<Tab>", "\<Down>"], 'cb': this.Down, 'format': this.Format},
     { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match3, 'settext': this.SetText, 'format': this.Format}, 
-    { 'keys': [], 'cb': this.Regular, 'match': this.Match2, 'settext': this.SetText, 'format': this.Format }]
+    { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText, 'format': this.Format }]
   var _selected_id: number = 0  # current selected index
   var _input_list: list<any>  # input list 
   var _results: list<list<any>> # return by matchfuzzypos() when do fuzzy
@@ -93,29 +93,14 @@ abstract class AbstractFuzzy
   var _cmd: string # external commands, grep, find, etc.
   var _cache_list: list<list<any>> = []
 
+  # implements by subclass, fetch orginal list, start timer, jobs etc..
   def Init()
-  enddef
-
-  # this method is call for initially populating the _input_list, either async or sync
-  def _WrapResultList()
-    # if we got some result to display & the _input_list was not populated as
-    # list<dict<any>: [ 'text': 'line1' , 'text': 'line2' ]. We convert it
-    # to any list<dict<any>> so we can use in matchfuzzypos later
-    if (!this._input_list->empty() && type(this._input_list[0]) ==# type(''))
-      this._input_list = this._input_list->mapnew((_, v) => {
-          return {'text': v}
-        })
-    endif
-    this._results = [this._input_list] # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
-    this._selected_id = 0 # reset selected id on new popup
   enddef
   def Info()
   enddef
   def Format()
     clearmatches(this._popup_id)
     matchaddpos('FuzzyMatch', [this._selected_id + 2], 10, -1, { window: this._popup_id })
-
-    this.Info()
   enddef
   def SetText()
     if (this._results->len() > 1)
@@ -127,10 +112,16 @@ abstract class AbstractFuzzy
     endif
     popup_setoptions(this._popup_id, { "title": $' {this._results[0]->len()} ' })
   enddef
+  def SetText2()
+    popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + this._input_list)
+    popup_setoptions(this._popup_id, { "title": $' {this._input_list->len()} ' })
+  enddef
 
   def Match2() # this will perform fuzzy search on previous results
+    if (!this._results[0]->empty())
+      this._cache_list->add(this._results[0])
+    endif
     this._results = this._results[0]->matchfuzzypos(this._searchstr, {'key': 'text'})
-    this._cache_list->add(this._results[0])
   enddef
 
   def Match()
@@ -145,6 +136,8 @@ abstract class AbstractFuzzy
     
     # got searchstr, try pull from cache if any
     if (!this._cache_list->empty()) 
+      # TODO: FIME
+      # 2. this may break in async polling
         this._results[0] = this._cache_list->remove(-1)
     endif
 
@@ -152,18 +145,10 @@ abstract class AbstractFuzzy
     this._results = this._results[0]->matchfuzzypos(this._searchstr, {'key': 'text'})
   enddef         
 
-  def _UpdatePopupFromTimer() # Runnable implement for subclass that run async
-    this._WrapResultList()
-    this.SetText()
-  enddef
-
   def Search(searchstr: string = "")
     this._searchstr = searchstr
-
-    # this._cache_list = []
-
     this.Init()  # subclass fuzzy to populate _input_list
-    this._WrapResultList()
+    this._results = [this._input_list] # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
 
     this._popup_id = popup_create([{'text': this._prompt .. this._searchstr }] + this._results[0], {
         filter: this._OnKeyDown,
@@ -176,6 +161,7 @@ abstract class AbstractFuzzy
         highlight: '',
         padding: [0, 1, 0, 1],
         border: [1, 1, 1, 1],
+        borderhighlight: ['FuzzyBorderNormal'], 
         scrollbar: 0,
         borderchars: ['─', '│', '─', '│', '┌', '┐', '┘', '└'],
         title:  $' {this._results[0]->len()} '
@@ -223,7 +209,7 @@ abstract class AbstractFuzzy
     execute($"edit {this.GetSelected()}")
   enddef
   def GetSelected(): string
-    this._results[0][this._selected_id].text
+    return this._results[0][this._selected_id].text
   enddef
   def Jump()
     if (!this._results[0]->empty())
@@ -244,10 +230,9 @@ export class MRU extends AbstractFuzzy
     return this._results[0][this._selected_id].realtext
   enddef
   def Init()
-    this._input_list = v:oldfiles->copy()->filter((_, v) => filereadable(fnamemodify(v, ":p")))->mapnew((_, v) => {
-      # store realtext which hold real path of file, it will be used later _OnEnter
-      return {'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}
-    })                                       
+    this._input_list = v:oldfiles->copy()->filter((_, v) => 
+        filereadable(fnamemodify(v, ":p")))->mapnew((_, v) => 
+          ({'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}))                                       
   enddef
   def Info()
     if (!this._results[0]->empty() && !this._results[0][this._selected_id]->empty())
@@ -322,7 +307,7 @@ export class Line extends AbstractFuzzy implements Runnable
   enddef
   def Run()
     this._input_list = matchbufline(winbufnr(0), '\S.*', 1, '$') 
-    this._UpdatePopupFromTimer()
+    this.SetText2()
   enddef
 endclass
 
@@ -336,8 +321,8 @@ export class CmdHistory extends AbstractFuzzy implements Runnable
   enddef
   def Run()
     # convert list of id to list of string commands
-    this._input_list = [ histget('cmd') ] + range(1, histnr('cmd'))->mapnew((_, v) =>  histget('cmd', v) )  
-    this._UpdatePopupFromTimer()
+    this._input_list = [ { 'text': histget('cmd') } ] + range(1, histnr('cmd'))->mapnew((_, v) =>  ({ 'text': histget('cmd', v) }) )  
+    this.SetText2()
   enddef
 endclass
 
@@ -350,8 +335,8 @@ export class Cmd extends AbstractFuzzy implements Runnable
     this.Execute()
   enddef
   def Run()
-    this._input_list = getcompletion('', 'command')
-    this._UpdatePopupFromTimer()
+    this._input_list = getcompletion('', 'command')->mapnew((_, v) => ({'text': v})) 
+    this.SetText2()
   enddef
 endclass
 
@@ -360,8 +345,13 @@ export class Buffer extends AbstractFuzzy
   def _OnEnter()
     this.Edit()
   enddef
+  def GetSelected(): string
+    return this._results[0][this._selected_id].realtext
+  enddef
   def Init()
-    this._input_list = getcompletion('', 'buffer')->filter((_, v) => bufnr(v) != bufnr())
+    this._input_list = getcompletion('', 'buffer')->filter((_, v) => 
+      bufnr(v) != bufnr())->mapnew((_, v) =>
+        ({'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}))
   enddef
 endclass
 
@@ -381,11 +371,9 @@ export class GitFile extends AbstractFuzzy implements Runnable
     return this._file_pwd .. "/" .. this._results[0][this._selected_id].realtext
   enddef
   def Run()
-    this._input_list = systemlist(this._cmd)->mapnew((_, v) => {
-      # store realtext which hold real path of file, it will be used later _OnEnter
-      return {'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}
-    })
-    this._UpdatePopupFromTimer()
+    this._input_list = systemlist(this._cmd)->mapnew((_, v) =>
+      ({'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}))
+    this.SetText2()
   enddef
   def Info()
     if (!this._results[0]->empty() && !this._results[0][this._selected_id]->empty())
