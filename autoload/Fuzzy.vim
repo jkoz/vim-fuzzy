@@ -80,7 +80,7 @@ abstract class AbstractFuzzy
     { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
     { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>"], 'cb': this.Up, 'format': this.Format},
     { 'keys': ["\<C-n>", "\<Tab>", "\<Down>"], 'cb': this.Down, 'format': this.Format},
-    { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match3, 'settext': this.SetText, 'format': this.Format}, 
+    { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText, 'format': this.Format}, 
     { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText, 'format': this.Format }]
   var _selected_id: number = 0  # current selected index
   var _input_list: list<any>  # input list 
