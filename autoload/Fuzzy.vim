@@ -91,7 +91,6 @@ abstract class AbstractFuzzy
   var _searchstr: string
   var _key: string # user input key
   var _cmd: string # external commands, grep, find, etc.
-  var _cache_list: list<list<any>> = []
 
   # implements by subclass, fetch orginal list, start timer, jobs etc..
   def Init()
@@ -104,7 +103,7 @@ abstract class AbstractFuzzy
   enddef
   def SetText()
     if (this._results->len() > 1)
-      popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + this._results[0]->mapnew((i, t) => {
+      popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + this._results[0]->slice(0, &lines)->mapnew((i, t) => {
         return { 'text': t.text, 'props': this._results[1][i]->mapnew((j, k) => ({'col': k + 1, 'length': 1, 'type': 'FuzzyMatchCharacter' }))}
       }))
     else
@@ -113,36 +112,13 @@ abstract class AbstractFuzzy
     popup_setoptions(this._popup_id, { "title": $' {this._results[0]->len()} ' })
   enddef
   def SetText2()
-    popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + this._input_list)
-    popup_setoptions(this._popup_id, { "title": $' {this._input_list->len()} ' })
-  enddef
-
-  def Match2() # this will perform fuzzy search on previous results
-    if (!this._results[0]->empty())
-      this._cache_list->add(this._results[0])
-    endif
-    this._results = this._results[0]->matchfuzzypos(this._searchstr, {'key': 'text'})
+    this._results = [this._input_list]
+    popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + this._results[0])
+    popup_setoptions(this._popup_id, { "title": $' {this._results[0]->len()} ' })
   enddef
 
   def Match()
     this._results = this._searchstr->empty() ? [this._input_list] : this._input_list->matchfuzzypos(this._searchstr, {'key': 'text'})
-  enddef         
-
-  def Match3()
-    if (this._searchstr->empty()) # user delete all the searchstr, or just start up
-      this._results = [this._input_list]
-      return
-    endif
-    
-    # got searchstr, try pull from cache if any
-    if (!this._cache_list->empty()) 
-      # TODO: FIME
-      # 2. this may break in async polling
-        this._results[0] = this._cache_list->remove(-1)
-    endif
-
-    # rematch on smaller list from cached
-    this._results = this._results[0]->matchfuzzypos(this._searchstr, {'key': 'text'})
   enddef         
 
   def Search(searchstr: string = "")
@@ -245,6 +221,8 @@ export class Find extends AbstractFuzzy implements Runnable, MessageHandler
   public static final Instance: Find = Find.new()
   var _job: Job
   var _poll_timer: Timer 
+  var _buffer: list<any>
+
   def _OnEnter()
     this.Edit()
   enddef
@@ -257,7 +235,7 @@ export class Find extends AbstractFuzzy implements Runnable, MessageHandler
     this._searchstr = "" # reset search back to empty, as it not intend to fuzzy search on that path
 
     this._input_list = []
-    this._results = [[this._input_list]]
+    this._buffer = []
 
     this._job = Job.new(this)
     this._job.Start(this._cmd) 
@@ -271,15 +249,14 @@ export class Find extends AbstractFuzzy implements Runnable, MessageHandler
       return
     endif
 
-    if (this._job.IsDead())
+    if (this._buffer->empty()) # no more buffer to process stop polling timer
       this._poll_timer.Stop()
-      this.L.Debug("Job done, got result, killed polling timer")
+    else
+      this._buffer->remove(0, this._buffer->len() - 1) # consume the buffer
+      this._results[0] += this._input_list
+      this.Match()
+      this.SetText()
     endif
-
-    this._results[0] += this._input_list
-
-    this.Match()
-    this.SetText()
   enddef
 
   def Info()
@@ -289,7 +266,9 @@ export class Find extends AbstractFuzzy implements Runnable, MessageHandler
   enddef
 
   def OnStdOut(ch: channel, msg: string)
-    this._input_list->add({ 'text': msg->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': msg })
+    var message: dict<any> = { 'text': msg->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': msg }
+    this._input_list->add(message)    
+    this._buffer->add(message)
   enddef
   def OnStdErr(ch: channel, msg: string)
   enddef
