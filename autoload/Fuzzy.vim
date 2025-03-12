@@ -5,7 +5,7 @@ class Logger
     ch_logfile('/tmp/vim-fuzzy.log', 'w')
   enddef
   def Debug(...msgs: list<string>)
-    ch_log("vim-fuzzy.vim > " .. msgs->reduce((a, v) => a .. " > " .. v) )
+    ch_log("vim-fuzzy.vim > " .. msgs->reduce((a, v) => a .. " " .. v) )
   enddef
 endclass
 
@@ -75,6 +75,20 @@ endclass
 
 abstract class AbstractFuzzy
   var L: Logger = Logger.new()
+  var _popup_opts = {
+        mapping: 0, 
+        filtermode: 'a',
+        minwidth: float2nr(&columns * 0.6),
+        maxwidth: float2nr(&columns * 0.6),
+        maxheight: float2nr(&lines * 0.6),
+        minheight: float2nr(&lines * 0.6),
+        highlight: '',
+        padding: [0, 1, 0, 1],
+        border: [1, 1, 1, 1],
+        borderhighlight: ['FuzzyBorderNormal'], 
+        scrollbar: 0,
+        borderchars: ['─', '│', '─', '│', '┌', '┐', '┘', '└'],
+      }
   var _key_maps: list<dict<any>> = [
     { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
     { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
@@ -102,13 +116,14 @@ abstract class AbstractFuzzy
     matchaddpos('FuzzyMatch', [this._selected_id + 2], 10, -1, { window: this._popup_id })
   enddef
   def SetText()
-    if (this._results->len() > 1)
-      popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + this._results[0]->slice(0, &lines)->mapnew((i, t) => {
-        return { 'text': t.text, 'props': this._results[1][i]->mapnew((j, k) => ({'col': k + 1, 'length': 1, 'type': 'FuzzyMatchCharacter' }))}
-      }))
-    else
-       popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + this._results[0])
+    # just display number of lines popup can show
+    var popup_display_list = this._results[0]->slice(0, this._popup_opts.maxheight - 1)
+    if (this._results->len() > 1 && !this._results[1]->empty())
+        popup_display_list = popup_display_list->mapnew((i, t) => {
+          return { 'text': t.text, 'props': this._results[1][i]->mapnew((j, k) => ({'col': k + 1, 'length': 1, 'type': 'FuzzyMatchCharacter' }))}
+        })
     endif
+    popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + popup_display_list)
     popup_setoptions(this._popup_id, { "title": $' {this._results[0]->len()} ' })
   enddef
   def SetText2()
@@ -118,7 +133,17 @@ abstract class AbstractFuzzy
   enddef
 
   def Match()
-    this._results = this._searchstr->empty() ? [this._input_list] : this._input_list->matchfuzzypos(this._searchstr, {'key': 'text'})
+    var b = reltime()
+    var ss = ' '
+
+    if this._searchstr->empty() 
+      this._results = [this._input_list]
+    else
+      this._results = this._input_list->matchfuzzypos(this._searchstr, {'key': 'text'})
+      ss = this._searchstr
+    endif
+
+    this.L.Debug("Match(", ss, ") Took ", (b->reltime()->reltimefloat() * 1000)->string(), " on ", this._input_list->len()->string(), " records")
   enddef         
 
   def Search(searchstr: string = "")
@@ -126,22 +151,10 @@ abstract class AbstractFuzzy
     this.Init()  # subclass fuzzy to populate _input_list
     this._results = [this._input_list] # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
 
-    this._popup_id = popup_create([{'text': this._prompt .. this._searchstr }] + this._results[0], {
+    this._popup_id = popup_create([{'text': this._prompt .. this._searchstr }] + this._results[0], this._popup_opts->extend({
         filter: this._OnKeyDown,
-        mapping: 0, 
-        filtermode: 'a',
-        minwidth: float2nr(&columns * 0.6),
-        maxwidth: float2nr(&columns * 0.6),
-        maxheight: float2nr(&lines * 0.6),
-        minheight: float2nr(&lines * 0.6),
-        highlight: '',
-        padding: [0, 1, 0, 1],
-        border: [1, 1, 1, 1],
-        borderhighlight: ['FuzzyBorderNormal'], 
-        scrollbar: 0,
-        borderchars: ['─', '│', '─', '│', '┌', '┐', '┘', '└'],
         title:  $' {this._results[0]->len()} '
-      })
+      }))
     this._bufnr = winbufnr(this._popup_id)
     this.Format()
   enddef
@@ -239,6 +252,7 @@ export class Find extends AbstractFuzzy implements Runnable, MessageHandler
 
     this._job = Job.new(this)
     this._job.Start(this._cmd) 
+
     this._poll_timer = Timer.new('Poll timer', 100, -1)
     this._poll_timer.Start(this)
   enddef
@@ -254,6 +268,7 @@ export class Find extends AbstractFuzzy implements Runnable, MessageHandler
     else
       this._buffer->remove(0, this._buffer->len() - 1) # consume the buffer
       this._results[0] += this._input_list
+
       this.Match()
       this.SetText()
     endif
