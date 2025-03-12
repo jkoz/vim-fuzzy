@@ -78,10 +78,6 @@ abstract class AbstractFuzzy
   var _popup_opts = {
         mapping: 0, 
         filtermode: 'a',
-        minwidth: float2nr(&columns * 0.6),
-        maxwidth: float2nr(&columns * 0.6),
-        maxheight: float2nr(&lines * 0.6),
-        minheight: float2nr(&lines * 0.6),
         highlight: '',
         padding: [0, 1, 0, 1],
         border: [1, 1, 1, 1],
@@ -98,7 +94,7 @@ abstract class AbstractFuzzy
     { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText, 'format': this.Format }]
   var _selected_id: number = 0  # current selected index
   var _input_list: list<any>  # input list 
-  var _results: list<list<any>> # return by matchfuzzypos() when do fuzzy
+  var _matched_list: list<list<any>> # return by matchfuzzypos() when do fuzzy
   var _bufnr: number
   var _popup_id: number
   var _prompt: string = ">> "
@@ -115,19 +111,19 @@ abstract class AbstractFuzzy
   enddef
   def SetText()
     # just display number of lines popup can show
-    var popup_display_list = this._results[0]->slice(0, this._popup_opts.maxheight - 1)
-    if (this._results->len() > 1 && !this._results[1]->empty())
+    var popup_display_list = this._matched_list[0]->slice(0, &lines)
+    if (this._matched_list->len() > 1 && !this._matched_list[1]->empty())
         popup_display_list = popup_display_list->mapnew((i, t) => {
-          return { 'text': t.text, 'props': this._results[1][i]->mapnew((j, k) => ({'col': k + 1, 'length': 1, 'type': 'FuzzyMatchCharacter' }))}
+          return { 'text': t.text, 'props': this._matched_list[1][i]->mapnew((j, k) => ({'col': k + 1, 'length': 1, 'type': 'FuzzyMatchCharacter' }))}
         })
     endif
     popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + popup_display_list)
-    popup_setoptions(this._popup_id, { "title": $' {this._results[0]->len()} ' })
+    popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} ' })
   enddef
   def SetText2()
-    this._results = [this._input_list]
-    popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + this._results[0])
-    popup_setoptions(this._popup_id, { "title": $' {this._results[0]->len()} ' })
+    this._matched_list = [this._input_list]
+    popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + this._matched_list[0])
+    popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} ' })
   enddef
 
   def Match()
@@ -135,9 +131,9 @@ abstract class AbstractFuzzy
     var ss = ' '
 
     if this._searchstr->empty() 
-      this._results = [this._input_list]
+      this._matched_list = [this._input_list]
     else
-      this._results = this._input_list->matchfuzzypos(this._searchstr, {'key': 'text'})
+      this._matched_list = this._input_list->matchfuzzypos(this._searchstr, {'key': 'text'})
       ss = this._searchstr
     endif
 
@@ -147,11 +143,15 @@ abstract class AbstractFuzzy
   def Search(searchstr: string = "")
     this._searchstr = searchstr
     this.Init()  # subclass fuzzy to populate _input_list
-    this._results = [this._input_list] # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
+    this._matched_list = [this._input_list] # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
 
-    this._popup_id = popup_create([{'text': this._prompt .. this._searchstr }] + this._results[0], this._popup_opts->extend({
+    this._popup_id = popup_create([{'text': this._prompt .. this._searchstr }] + this._matched_list[0], this._popup_opts->extend({
+        minwidth: float2nr(&columns * 0.6),
+        maxwidth: float2nr(&columns * 0.6),
+        maxheight: float2nr(&lines * 0.6),
+        minheight: float2nr(&lines * 0.6),
         filter: this._OnKeyDown,
-        title:  $' {this._results[0]->len()} '
+        title:  $' {this._matched_list[0]->len()} '
       }))
     this._bufnr = winbufnr(this._popup_id)
     this.Format()
@@ -170,7 +170,7 @@ abstract class AbstractFuzzy
     return false
   enddef
   def Enter()
-    if (!this._results[0]->empty())
+    if (!this._matched_list[0]->empty())
       this._OnEnter()
       this.Cancel() # close popup
     endif
@@ -183,7 +183,7 @@ abstract class AbstractFuzzy
     this._selected_id = max([this._selected_id - 1, 0])
   enddef
   def Down(): void
-    this._selected_id = min([this._selected_id + 1, this._results[0]->len() - 1])
+    this._selected_id = min([this._selected_id + 1, this._matched_list[0]->len() - 1])
   enddef
   def Delete(): void
     this._searchstr = this._searchstr->substitute(".$", "", "")
@@ -196,15 +196,15 @@ abstract class AbstractFuzzy
     execute($"edit {this.GetSelected()}")
   enddef
   def GetSelected(): string
-    return this._results[0][this._selected_id].text
+    return this._matched_list[0][this._selected_id].text
   enddef
   def Jump()
-    if (!this._results[0]->empty())
-      execute($"exec 'normal m`' | :{this._results[0][this._selected_id].lnum} | norm zz")
+    if (!this._matched_list[0]->empty())
+      execute($"exec 'normal m`' | :{this._matched_list[0][this._selected_id].lnum} | norm zz")
     endif
   enddef
   def Execute()
-    feedkeys(":" .. this._results[0][this._selected_id].text, "n") # feed keys to command only, don't execute it 
+    feedkeys(":" .. this._matched_list[0][this._selected_id].text, "n") # feed keys to command only, don't execute it 
   enddef
 endclass 
 
@@ -214,7 +214,7 @@ export class MRU extends AbstractFuzzy
     this.Edit()
   enddef
   def GetSelected(): string
-    return this._results[0][this._selected_id].realtext
+    return this._matched_list[0][this._selected_id].realtext
   enddef
   def Init()
     this._input_list = v:oldfiles->copy()->filter((_, v) => 
@@ -233,7 +233,7 @@ export class Find extends AbstractFuzzy implements Runnable, MessageHandler
     this.Edit()
   enddef
   def GetSelected(): string
-    return this._results[0][this._selected_id].realtext
+    return this._matched_list[0][this._selected_id].realtext
   enddef
   def Init()
     var pat = this._searchstr->empty() ? expand('%:p:h') : this._searchstr
@@ -260,7 +260,7 @@ export class Find extends AbstractFuzzy implements Runnable, MessageHandler
       this._poll_timer.Stop()
     else
       this._buffer->remove(0, this._buffer->len() - 1) # consume the buffer
-      this._results[0] = this._input_list
+      this._matched_list[0] = this._input_list
 
       this.Match()
       this.SetText()
@@ -326,7 +326,7 @@ export class Buffer extends AbstractFuzzy
     this.Edit()
   enddef
   def GetSelected(): string
-    return this._results[0][this._selected_id].realtext
+    return this._matched_list[0][this._selected_id].realtext
   enddef
   def Init()
     this._input_list = getcompletion('', 'buffer')->filter((_, v) => 
@@ -348,7 +348,7 @@ export class GitFile extends AbstractFuzzy implements Runnable
     this.Edit()
   enddef
   def GetSelected(): string
-    return this._file_pwd .. "/" .. this._results[0][this._selected_id].realtext
+    return this._file_pwd .. "/" .. this._matched_list[0][this._selected_id].realtext
   enddef
   def Run()
     this._input_list = systemlist(this._cmd)->mapnew((_, v) =>
