@@ -109,8 +109,6 @@ abstract class AbstractFuzzy
   # implements by subclass, fetch orginal list, start timer, jobs etc..
   def Init()
   enddef
-  def Info()
-  enddef
   def Format()
     clearmatches(this._popup_id)
     matchaddpos('FuzzyMatch', [this._selected_id + 2], 10, -1, { window: this._popup_id })
@@ -223,11 +221,6 @@ export class MRU extends AbstractFuzzy
         filereadable(fnamemodify(v, ":p")))->mapnew((_, v) => 
           ({'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}))                                       
   enddef
-  def Info()
-    if (!this._results[0]->empty() && !this._results[0][this._selected_id]->empty())
-      echo this._results[0][this._selected_id].realtext
-    endif
-  enddef
 endclass
 
 export class Find extends AbstractFuzzy implements Runnable, MessageHandler
@@ -267,19 +260,12 @@ export class Find extends AbstractFuzzy implements Runnable, MessageHandler
       this._poll_timer.Stop()
     else
       this._buffer->remove(0, this._buffer->len() - 1) # consume the buffer
-      this._results[0] += this._input_list
+      this._results[0] = this._input_list
 
       this.Match()
       this.SetText()
     endif
   enddef
-
-  def Info()
-    if (!this._results[0]->empty() && !this._results[0][this._selected_id]->empty())
-      echo this._results[0][this._selected_id].realtext
-    endif
-  enddef
-
   def OnStdOut(ch: channel, msg: string)
     var message: dict<any> = { 'text': msg->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': msg }
     this._input_list->add(message)    
@@ -368,10 +354,5 @@ export class GitFile extends AbstractFuzzy implements Runnable
     this._input_list = systemlist(this._cmd)->mapnew((_, v) =>
       ({'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}))
     this.SetText2()
-  enddef
-  def Info()
-    if (!this._results[0]->empty() && !this._results[0][this._selected_id]->empty())
-      echo this._results[0][this._selected_id].realtext
-    endif
   enddef
 endclass
