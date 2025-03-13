@@ -4,8 +4,8 @@ class Logger
   def new()
     ch_logfile('/tmp/vim-fuzzy.log', 'w')
   enddef
-  def Debug(...msgs: list<string>)
-    ch_log("vim-fuzzy.vim > " .. msgs->reduce((a, v) => a .. " " .. v) )
+  def Debug(...msgs: list<any>)
+    ch_log("vim-fuzzy.vim > " .. msgs->reduce((a, v) => a .. "" .. v->string()) )
   enddef
 endclass
 
@@ -94,13 +94,13 @@ abstract class AbstractFuzzy
     { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText, 'format': this.Format }]
   var _selected_id: number = 0  # current selected index
   var _input_list: list<any>  # input list 
-  var _matched_list: list<list<any>> # return by matchfuzzypos() when do fuzzy
+  # [['fkalackdlakdflala', 'claylakclac'], [[13, 14, 15, 16], [1, 2, 4, 5]], [192, 164]]
+  var _matched_list: list<list<any>> # return by matchfuzzypos() 
   var _bufnr: number
   var _popup_id: number
   var _prompt: string = ">> "
   var _searchstr: string
   var _key: string # user input key
-  var _cmd: string # external commands, grep, find, etc.
 
   # implements by subclass, fetch orginal list, start timer, jobs etc..
   def Init()
@@ -126,17 +126,19 @@ abstract class AbstractFuzzy
     popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} ' })
   enddef
 
+  def FuzzyMatch(ss: string, items: list<dict<any>>): list<list<any>>
+      return items->matchfuzzypos(ss, {'key': 'text'})
+  enddef
+
   def Match()
     var b = reltime()
     var ss = ' '
-
     if this._searchstr->empty() 
       this._matched_list = [this._input_list]
     else
-      this._matched_list = this._input_list->matchfuzzypos(this._searchstr, {'key': 'text'})
+      this._matched_list = this.FuzzyMatch(this._searchstr, this._input_list)
       ss = this._searchstr
     endif
-
     this.L.Debug("Match(", ss, ") Took ", (b->reltime()->reltimefloat() * 1000)->string(), " on ", this._input_list->len()->string(), " records")
   enddef         
 
@@ -208,26 +210,37 @@ abstract class AbstractFuzzy
   enddef
 endclass 
 
-export class MRU extends AbstractFuzzy
-  public static final Instance: MRU = MRU.new()
-  def _OnEnter()
-    this.Edit()
-  enddef
-  def GetSelected(): string
-    return this._matched_list[0][this._selected_id].realtext
-  enddef
+abstract class AbstractCachedFuzzy extends AbstractFuzzy
+  var _cached_list: dict<dict<any>>
+
   def Init()
-    this._input_list = v:oldfiles->copy()->filter((_, v) => 
-        filereadable(fnamemodify(v, ":p")))->mapnew((_, v) => 
-          ({'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}))                                       
+    this._cached_list = {}
   enddef
+
+  def Match()
+    if this._searchstr->empty() 
+      this._matched_list = [this._input_list]
+      return
+    endif
+
+    var previous_matched_list = this._cached_list->get(this._searchstr, [])
+    # this.L.Debug("_input_list", this._input_list)
+    if (previous_matched_list->empty())
+      this._matched_list = this.FuzzyMatch(this._searchstr, this._input_list)
+      this._cached_list[this._searchstr] = { 'data': this._matched_list}
+      # this.L.Debug("_cached_list ", this._cached_list)
+    else
+      this._matched_list = previous_matched_list.data
+      # this.L.Debug("_pull_cache(", this._searchstr, ") ", this._matched_list)
+    endif
+  enddef         
 endclass
 
-export class Find extends AbstractFuzzy implements Runnable, MessageHandler
-  public static final Instance: Find = Find.new()
+export class SysCallFuzzy extends AbstractCachedFuzzy implements Runnable, MessageHandler
   var _job: Job
   var _poll_timer: Timer 
   var _buffer: list<any>
+  var _cmd: string # external commands, grep, find, etc.
 
   def _OnEnter()
     this.Edit()
@@ -236,8 +249,7 @@ export class Find extends AbstractFuzzy implements Runnable, MessageHandler
     return this._matched_list[0][this._selected_id].realtext
   enddef
   def Init()
-    var pat = this._searchstr->empty() ? expand('%:p:h') : this._searchstr
-    this._cmd = 'find ' .. pat .. ' -type f -not -path "*/\.git/*"'
+    super.Init()
     this._searchstr = "" # reset search back to empty, as it not intend to fuzzy search on that path
 
     this._input_list = []
@@ -258,11 +270,31 @@ export class Find extends AbstractFuzzy implements Runnable, MessageHandler
 
     if (this._buffer->empty()) # no more buffer to process stop polling timer
       this._poll_timer.Stop()
+      var previous_matched_list = this._cached_list->get(this._searchstr, [])
+      if (!previous_matched_list->empty())
+        previous_matched_list.is_done = true 
+      endif
     else
-      this._buffer->remove(0, this._buffer->len() - 1) # consume the buffer
-      this._matched_list[0] = this._input_list
+      var payload = this._buffer->remove(0, this._buffer->len() - 1) # consume the buffer
 
-      this.Match()
+      if this._searchstr->empty() 
+        this._matched_list = [this._input_list]
+      else
+        var previous_matched_list = this._cached_list->get(this._searchstr, [])
+        
+        
+        var items: list<any>
+        if (previous_matched_list->empty()) 
+          items = this._input_list 
+        else # udate matched list with new payload if we have cache for the string
+          items = previous_matched_list.data[0] + payload
+        endif
+
+        this._matched_list = this.FuzzyMatch(this._searchstr, items)
+
+        this._cached_list[this._searchstr] = { 'data': this._matched_list, 'is_done': false, 'loc': items->len() - 1 }
+      endif
+
       this.SetText()
     endif
   enddef
@@ -274,6 +306,30 @@ export class Find extends AbstractFuzzy implements Runnable, MessageHandler
   def OnStdErr(ch: channel, msg: string)
   enddef
   def OnExit(ch: job, status: number)
+  enddef
+endclass
+
+export class MRU extends AbstractFuzzy
+  public static final Instance: MRU = MRU.new()
+  def _OnEnter()
+    this.Edit()
+  enddef
+  def GetSelected(): string
+    return this._matched_list[0][this._selected_id].realtext
+  enddef
+  def Init()
+    this._input_list = v:oldfiles->copy()->filter((_, v) => 
+        filereadable(fnamemodify(v, ":p")))->mapnew((_, v) => 
+          ({'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}))                                       
+  enddef
+endclass
+
+export class Find extends SysCallFuzzy
+  public static final Instance: Find = Find.new()
+  def Init()
+    var pat = this._searchstr->empty() ? expand('%:p:h') : this._searchstr
+    this._cmd = 'find ' .. pat .. ' -type f -not -path "*/\.git/*"'
+    super.Init()
   enddef
 endclass
 
