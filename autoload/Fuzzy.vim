@@ -34,7 +34,6 @@ interface Runnable
 endinterface
 
 class Timer
-  # var _logger: Logger
   var _delay: number = 0
   var _runnable: Runnable
   var _name: string
@@ -49,7 +48,6 @@ class Timer
   def Start(runnable: Runnable)
     try
       this._runnable = runnable
-      # this._logger.Debug('Timer.Start() ' .. this._name .. ' runnable ' .. this._runnable->string())
       this._timerId = timer_start(this._delay, this._HandleTimer, this._options)
     catch
       echom 'Error from ' .. this._name .. ': ' .. v:exception->string()
@@ -126,20 +124,19 @@ abstract class AbstractFuzzy
     popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} ' })
   enddef
 
-  def FuzzyMatch(ss: string, items: list<dict<any>>): list<list<any>>
-      return items->matchfuzzypos(ss, {'key': 'text'})
+  def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
+    var b = reltime()
+    var ret = items->matchfuzzypos(ss, {'key': 'text'})
+    this.L.Debug("matchfuzzy(", ss, ") Took ", (b->reltime()->reltimefloat() * 1000)->string(), " on ", items->len(), " records")
+    return ret
   enddef
 
   def Match()
-    var b = reltime()
-    var ss = ' '
     if this._searchstr->empty() 
       this._matched_list = [this._input_list]
     else
-      this._matched_list = this.FuzzyMatch(this._searchstr, this._input_list)
-      ss = this._searchstr
+      this._matched_list = this.MatchFuzzyPos(this._searchstr, this._input_list)
     endif
-    this.L.Debug("Match(", ss, ") Took ", (b->reltime()->reltimefloat() * 1000)->string(), " on ", this._input_list->len()->string(), " records")
   enddef         
 
   def Search(searchstr: string = "")
@@ -224,14 +221,21 @@ abstract class AbstractCachedFuzzy extends AbstractFuzzy
     endif
 
     var previous_matched_list = this._cached_list->get(this._searchstr, [])
-    # this.L.Debug("_input_list", this._input_list)
     if (previous_matched_list->empty())
-      this._matched_list = this.FuzzyMatch(this._searchstr, this._input_list)
-      this._cached_list[this._searchstr] = { 'data': this._matched_list}
-      # this.L.Debug("_cached_list ", this._cached_list)
+      this._matched_list = this.MatchFuzzyPos(this._searchstr, this._input_list)
+      this._cached_list[this._searchstr] = { 'data': this._matched_list, 'input_list_size': this._input_list->len()}
     else
-      this._matched_list = previous_matched_list.data
-      # this.L.Debug("_pull_cache(", this._searchstr, ") ", this._matched_list)
+      if (previous_matched_list.input_list_size !=# this._input_list->len())
+        var chopped_list = this._input_list->slice(previous_matched_list.input_list_size, this._input_list->len() - 1)
+
+        this.L.Debug("Got cache, however, it is not updated! Reperform fuzzy search on ", chopped_list->len(), " extra records")
+
+        this._matched_list = this.MatchFuzzyPos(this._searchstr, previous_matched_list.data[0] + chopped_list)
+        # this._matched_list = this.MatchFuzzyPos(this._searchstr, this._input_list)
+        this._cached_list[this._searchstr] = { 'data': this._matched_list, 'input_list_size': this._input_list->len()}
+      else
+        this._matched_list = previous_matched_list.data
+      endif
     endif
   enddef         
 endclass
@@ -270,34 +274,38 @@ export class SysCallFuzzy extends AbstractCachedFuzzy implements Runnable, Messa
 
     if (this._buffer->empty()) # no more buffer to process stop polling timer
       this._poll_timer.Stop()
-      var previous_matched_list = this._cached_list->get(this._searchstr, [])
-      if (!previous_matched_list->empty())
-        previous_matched_list.is_done = true 
-      endif
-    else
+      this.L.Debug("no more buffer, data stream end, stop timer")
+      return
+    endif
+    # else
       var payload = this._buffer->remove(0, this._buffer->len() - 1) # consume the buffer
 
-      if this._searchstr->empty() 
-        this._matched_list = [this._input_list]
-      else
-        var previous_matched_list = this._cached_list->get(this._searchstr, [])
+      this.L.Debug("Fetching iput list, payloads: ", payload->len(), "records -  total:", this._input_list->len())
+
+    #   if this._searchstr->empty() 
+    #     this._matched_list = [this._input_list]
+    #   else
+    #     var previous_matched_list = this._cached_list->get(this._searchstr, [])
         
         
-        var items: list<any>
-        if (previous_matched_list->empty()) 
-          items = this._input_list 
-        else # udate matched list with new payload if we have cache for the string
-          items = previous_matched_list.data[0] + payload
-        endif
+    #     var items: list<any>
+    #     if (previous_matched_list->empty()) 
+    #       items = this._input_list 
+    #     else # udate matched list with new payload if we have cache for the string
+    #       items = previous_matched_list.data[0] + payload
+    #     endif
 
-        this._matched_list = this.FuzzyMatch(this._searchstr, items)
+    #     this._matched_list = this.MatchFuzzyPos(this._searchstr, items)
 
-        this._cached_list[this._searchstr] = { 'data': this._matched_list, 'is_done': false, 'loc': items->len() - 1 }
-      endif
+    #     this._cached_list[this._searchstr] = { 'data': this._matched_list, 'input_list_size': this._input_list->len()}
+    #   endif
 
+    this.Match()
       this.SetText()
-    endif
+    # endif
   enddef
+
+
   def OnStdOut(ch: channel, msg: string)
     var message: dict<any> = { 'text': msg->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': msg }
     this._input_list->add(message)    
