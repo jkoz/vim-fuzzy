@@ -1,17 +1,27 @@
 vim9script 
 
 class Logger
+  var _debug: bool = false
   def new()
     ch_logfile('/tmp/vim-fuzzy.log', 'w')
   enddef
   def Debug(...msgs: list<any>)
-    ch_log("vim-fuzzy.vim > " .. msgs->reduce((a, v) => a .. "" .. v->string()) )
+    if (this._debug)
+      ch_log("vim-fuzzy.vim [Debug] " .. msgs->reduce((a, v) => a .. "" .. v->string()) )
+    endif
+  enddef
+  def DebugCR(msgs: list<any>)
+    if (this._debug)
+      for it in msgs
+        ch_log("vim-fuzzy.vim [Debug] " .. it->string())
+      endfor
+    endif
   enddef
 endclass
 
 interface MessageHandler
-  def OnStdOut(ch: channel, msg: string)
-  def OnStdErr(ch: channel, msg: string)
+  def OnMessage(ch: channel, msg: string)
+  def OnError(ch: channel, msg: string)
   def OnExit(ch: job, status: number)
 endinterface
 
@@ -22,7 +32,7 @@ class Job
     this._handler = s
   enddef
   def Start(cmd: string)
-    this._job = job_start(cmd, {out_cb: this._handler.OnStdOut, err_cb: this._handler.OnStdErr, exit_cb: this._handler.OnExit})
+    this._job = job_start(cmd, {out_cb: this._handler.OnMessage, err_cb: this._handler.OnError, exit_cb: this._handler.OnExit})
   enddef
   def IsDead(): bool
     return job_status(this._job) ==# 'dead'
@@ -72,7 +82,7 @@ class Timer
 endclass
 
 abstract class AbstractFuzzy
-  var L: Logger = Logger.new()
+  var _logger: Logger = Logger.new()
   var _popup_opts = {
         mapping: 0, 
         filtermode: 'a',
@@ -100,9 +110,6 @@ abstract class AbstractFuzzy
   var _searchstr: string
   var _key: string # user input key
 
-  # implements by subclass, fetch orginal list, start timer, jobs etc..
-  def Init()
-  enddef
   def Format()
     clearmatches(this._popup_id)
     matchaddpos('FuzzyMatch', [this._selected_id + 2], 10, -1, { window: this._popup_id })
@@ -127,7 +134,7 @@ abstract class AbstractFuzzy
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
     var b = reltime()
     var ret = items->matchfuzzypos(ss, {'key': 'text'})
-    this.L.Debug("matchfuzzy(", ss, ") Took ", (b->reltime()->reltimefloat() * 1000)->string(), " on ", items->len(), " records")
+    this._logger.Debug("matchfuzzy(", ss, ") Took ", (b->reltime()->reltimefloat() * 1000)->string(), " on ", items->len(), " records")
     return ret
   enddef
 
@@ -139,9 +146,12 @@ abstract class AbstractFuzzy
     endif
   enddef         
 
+  # implements by subclass, fetch orginal list, start timer, jobs etc..
+  def Before()
+  enddef
   def Search(searchstr: string = "")
     this._searchstr = searchstr
-    this.Init()  # subclass fuzzy to populate _input_list
+    this.Before()  # subclass fuzzy to populate _input_list
     this._matched_list = [this._input_list] # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
 
     this._popup_id = popup_create([{'text': this._prompt .. this._searchstr }] + this._matched_list[0], this._popup_opts->extend({
@@ -210,7 +220,7 @@ endclass
 abstract class AbstractCachedFuzzy extends AbstractFuzzy
   var _cached_list: dict<dict<any>>
 
-  def Init()
+  def Before()
     this._cached_list = {}
   enddef
 
@@ -228,7 +238,7 @@ abstract class AbstractCachedFuzzy extends AbstractFuzzy
       if (previous_matched_list.input_list_size !=# this._input_list->len())
         var chopped_list = this._input_list->slice(previous_matched_list.input_list_size, this._input_list->len() - 1)
 
-        this.L.Debug("Got cache, however, it is not updated! Reperform fuzzy search on ", chopped_list->len(), " extra records")
+        this._logger.Debug("Got cache, however, it is not updated! Reperform fuzzy search on ", chopped_list->len(), " extra records")
 
         this._matched_list = this.MatchFuzzyPos(this._searchstr, previous_matched_list.data[0] + chopped_list)
         # this._matched_list = this.MatchFuzzyPos(this._searchstr, this._input_list)
@@ -240,11 +250,13 @@ abstract class AbstractCachedFuzzy extends AbstractFuzzy
   enddef         
 endclass
 
-export class SysCallFuzzy extends AbstractCachedFuzzy implements Runnable, MessageHandler
+export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, MessageHandler
+  public static final Instance: ShellFuzzy = ShellFuzzy.new()
   var _job: Job
   var _poll_timer: Timer 
   var _buffer: list<any>
   var _cmd: string # external commands, grep, find, etc.
+  var _error_msg: list<string>
 
   def _OnEnter()
     this.Edit()
@@ -252,15 +264,22 @@ export class SysCallFuzzy extends AbstractCachedFuzzy implements Runnable, Messa
   def GetSelected(): string
     return this._matched_list[0][this._selected_id].realtext
   enddef
-  def Init()
-    super.Init()
+  def Before()
+    super.Before()
+    this._cmd = this._searchstr
     this._searchstr = "" # reset search back to empty, as it not intend to fuzzy search on that path
 
     this._input_list = []
     this._buffer = []
+    this._error_msg = []
+  enddef
+  def Search(searchstr: string = "")
+    super.Search(searchstr)
 
     this._job = Job.new(this)
     this._job.Start(this._cmd) 
+
+    this._logger.Debug("Running command: ", this._cmd)
 
     this._poll_timer = Timer.new('Poll timer', 100, -1)
     this._poll_timer.Start(this)
@@ -268,50 +287,37 @@ export class SysCallFuzzy extends AbstractCachedFuzzy implements Runnable, Messa
   def Run()
     if (popup_getpos(this._popup_id)->empty())
       this._poll_timer.Stop()
-      this.L.Debug("Popup close, killed polling timer")
+      this._logger.Debug("Popup close, killed polling timer")
+      if (!this._error_msg->empty())
+        this._logger.Debug("Error while executing cmd: ", this._cmd)
+        this._logger.DebugCR(this._error_msg)
+      endif
       return
     endif
 
     if (this._buffer->empty()) # no more buffer to process stop polling timer
       this._poll_timer.Stop()
-      this.L.Debug("no more buffer, data stream end, stop timer")
+      this._logger.Debug("no more buffer, data stream end, stop timer")
+      if (!this._error_msg->empty())
+        this._logger.Debug("Error while executing cmd: ", this._cmd)
+        this._logger.DebugCR(this._error_msg)
+      endif
       return
     endif
-    # else
       var payload = this._buffer->remove(0, this._buffer->len() - 1) # consume the buffer
-
-      this.L.Debug("Fetching iput list, payloads: ", payload->len(), "records -  total:", this._input_list->len())
-
-    #   if this._searchstr->empty() 
-    #     this._matched_list = [this._input_list]
-    #   else
-    #     var previous_matched_list = this._cached_list->get(this._searchstr, [])
-        
-        
-    #     var items: list<any>
-    #     if (previous_matched_list->empty()) 
-    #       items = this._input_list 
-    #     else # udate matched list with new payload if we have cache for the string
-    #       items = previous_matched_list.data[0] + payload
-    #     endif
-
-    #     this._matched_list = this.MatchFuzzyPos(this._searchstr, items)
-
-    #     this._cached_list[this._searchstr] = { 'data': this._matched_list, 'input_list_size': this._input_list->len()}
-    #   endif
-
-    this.Match()
+      this._logger.Debug("Fetching iput list, payloads: ", payload->len(), "records -  total:", this._input_list->len())
+      this.Match()
       this.SetText()
-    # endif
   enddef
 
 
-  def OnStdOut(ch: channel, msg: string)
+  def OnMessage(ch: channel, msg: string)
     var message: dict<any> = { 'text': msg->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': msg }
     this._input_list->add(message)    
     this._buffer->add(message)
   enddef
-  def OnStdErr(ch: channel, msg: string)
+  def OnError(ch: channel, msg: string)
+    this._error_msg->add(msg)
   enddef
   def OnExit(ch: job, status: number)
   enddef
@@ -325,19 +331,10 @@ export class MRU extends AbstractFuzzy
   def GetSelected(): string
     return this._matched_list[0][this._selected_id].realtext
   enddef
-  def Init()
+  def Before()
     this._input_list = v:oldfiles->copy()->filter((_, v) => 
         filereadable(fnamemodify(v, ":p")))->mapnew((_, v) => 
           ({'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}))                                       
-  enddef
-endclass
-
-export class Find extends SysCallFuzzy
-  public static final Instance: Find = Find.new()
-  def Init()
-    var pat = this._searchstr->empty() ? expand('%:p:h') : this._searchstr
-    this._cmd = 'find ' .. pat .. ' -type f -not -path "*/\.git/*"'
-    super.Init()
   enddef
 endclass
 
@@ -346,7 +343,7 @@ export class Line extends AbstractFuzzy implements Runnable
   def _OnEnter()
     this.Jump()
   enddef
-  def Init()
+  def Before()
     Timer.new("Line").Start(this)
   enddef
   def Run()
@@ -357,7 +354,7 @@ endclass
 
 export class CmdHistory extends AbstractFuzzy implements Runnable
   public static final Instance: CmdHistory = CmdHistory.new()
-  def Init()
+  def Before()
     Timer.new("CmdHistory").Start(this)
   enddef
   def _OnEnter()
@@ -372,7 +369,7 @@ endclass
 
 export class Cmd extends AbstractFuzzy implements Runnable
   public static final Instance: Cmd = Cmd.new()
-  def Init()
+  def Before()
     Timer.new("Cmd").Start(this)
   enddef
   def _OnEnter()
@@ -392,31 +389,33 @@ export class Buffer extends AbstractFuzzy
   def GetSelected(): string
     return this._matched_list[0][this._selected_id].realtext
   enddef
-  def Init()
+  def Before()
     this._input_list = getcompletion('', 'buffer')->filter((_, v) => 
       bufnr(v) != bufnr())->mapnew((_, v) =>
         ({'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}))
   enddef
 endclass
 
-export class GitFile extends AbstractFuzzy implements Runnable
+export class Find extends ShellFuzzy
+  public static final Instance: Find = Find.new()
+  def Before()
+    super.Before()
+    # ShellFuzzy store all args, in this case it is just a file path 
+    var pat = this._cmd->empty() ? expand('%:p:h') : this._cmd
+    this._cmd = 'find ' .. pat .. ' -type f -not -path "*/\.git/*"'
+  enddef
+endclass
+
+export class GitFile extends ShellFuzzy
   public static final Instance: GitFile = GitFile.new()
   var _file_pwd: string
 
-  def Init()
+  def Before()
+    super.Before()
     this._file_pwd = expand('%:p:h')
-    this._cmd = 'git -C ' .. this._file_pwd .. ' ls-files `git -C ' .. this._file_pwd .. ' rev-parse --show-toplevel`'
-    Timer.new("GitFile").Start(this)
-  enddef
-  def _OnEnter()
-    this.Edit()
+    this._cmd = 'sh -c "git -C ' .. this._file_pwd .. ' rev-parse --show-toplevel | xargs git -C ' .. this._file_pwd .. ' ls-files"'
   enddef
   def GetSelected(): string
     return this._file_pwd .. "/" .. this._matched_list[0][this._selected_id].realtext
-  enddef
-  def Run()
-    this._input_list = systemlist(this._cmd)->mapnew((_, v) =>
-      ({'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}))
-    this.SetText2()
   enddef
 endclass
