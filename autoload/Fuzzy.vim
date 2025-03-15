@@ -1,16 +1,16 @@
 vim9script 
 
 class Logger
-  var _debug: bool = false
+  var _debug: bool = true
   def new()
     ch_logfile('/tmp/vim-fuzzy.log', 'w')
   enddef
-  def Debug(...msgs: list<any>)
+  def Debug(str: string)
     if (this._debug)
-      ch_log("vim-fuzzy.vim [Debug] " .. msgs->reduce((a, v) => a .. "" .. v->string()) )
+      ch_log("vim-fuzzy.vim [Debug] " .. str)
     endif
   enddef
-  def DebugCR(msgs: list<any>)
+  def DebugList(msgs: list<any>)
     if (this._debug)
       for it in msgs
         ch_log("vim-fuzzy.vim [Debug] " .. it->string())
@@ -50,7 +50,6 @@ class Timer
   var _options: dict<any>
   var _timerId: number = 0
   def new(name: string, delay: number = 0, repeat: number = 0)
-    # this._logger = Logger.new()
     this._delay = delay
     this._name = name
     this._options = { 'repeat': repeat }
@@ -94,6 +93,9 @@ abstract class AbstractFuzzy
         borderchars: ['─', '│', '─', '│', '┌', '┐', '┘', '└'],
       }
   var _key_maps: list<dict<any>> = [
+    { 'keys': ["\<ScrollWheelLeft>", "\<ScrollWheelRight>"]},
+    { 'keys': ["\<ScrollWheelUp>"]},
+    { 'keys': ["\<ScrollWheelDown>"]},
     { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
     { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
     { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>"], 'cb': this.Up, 'format': this.Format},
@@ -123,18 +125,22 @@ abstract class AbstractFuzzy
         })
     endif
     popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + popup_display_list)
-    popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} ' })
+    this.SetStatus()
   enddef
   def SetText2()
     this._matched_list = [this._input_list]
     popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + this._matched_list[0])
+    this.SetStatus()
+  enddef
+
+  def SetStatus()
     popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} ' })
   enddef
 
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
     var b = reltime()
     var ret = items->matchfuzzypos(ss, {'key': 'text'})
-    this._logger.Debug("matchfuzzy(", ss, ") Took ", (b->reltime()->reltimefloat() * 1000)->string(), " on ", items->len(), " records")
+    this._logger.Debug("Matching [" .. ss .. "] on " .. items->len() .. " records. Took " .. b->reltime()->reltimefloat() * 1000)
     return ret
   enddef
 
@@ -160,15 +166,22 @@ abstract class AbstractFuzzy
         maxheight: float2nr(&lines * 0.6),
         minheight: float2nr(&lines * 0.6),
         filter: this._OnKeyDown,
-        title:  $' {this._matched_list[0]->len()} '
       }))
     this._bufnr = winbufnr(this._popup_id)
     this.Format()
+    this.After()
+  enddef
+  def After()
+    this.SetStatus()
   enddef
   def _OnKeyDown(winid: number, key: string): bool
     this._key = key
     for item in this._key_maps
       if (item.keys->empty() || item.keys->index(key) > -1)
+        if (!item->has_key('cb')) 
+          this._logger.Debug("No call back, ignored key")
+          return false
+        endif
         item.cb()
         (!item->has_key('match')) ?? item.match() 
         (!item->has_key('settext')) ?? item.settext() 
@@ -213,7 +226,7 @@ abstract class AbstractFuzzy
     endif
   enddef
   def Execute()
-    feedkeys(":" .. this._matched_list[0][this._selected_id].text, "n") # feed keys to command only, don't execute it 
+    feedkeys($": {this.GetSelected()}", "n") # feed keys to command only, don't execute it 
   enddef
 endclass 
 
@@ -238,7 +251,7 @@ abstract class AbstractCachedFuzzy extends AbstractFuzzy
       if (previous_matched_list.input_list_size !=# this._input_list->len())
         var chopped_list = this._input_list->slice(previous_matched_list.input_list_size, this._input_list->len() - 1)
 
-        this._logger.Debug("Got cache, however, it is not updated! Reperform fuzzy search on ", chopped_list->len(), " extra records")
+        this._logger.Debug("Cached record out of update! Reperform fuzzy search on " .. chopped_list->len() .. " addition records")
 
         this._matched_list = this.MatchFuzzyPos(this._searchstr, previous_matched_list.data[0] + chopped_list)
         # this._matched_list = this.MatchFuzzyPos(this._searchstr, this._input_list)
@@ -268,7 +281,6 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
     super.Before()
     this._cmd = this._searchstr
     this._searchstr = "" # reset search back to empty, as it not intend to fuzzy search on that path
-
     this._input_list = []
     this._buffer = []
     this._error_msg = []
@@ -279,7 +291,7 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
     this._job = Job.new(this)
     this._job.Start(this._cmd) 
 
-    this._logger.Debug("Running command: ", this._cmd)
+    this._logger.Debug("Running command: " .. this._cmd)
 
     this._poll_timer = Timer.new('Poll timer', 100, -1)
     this._poll_timer.Start(this)
@@ -289,23 +301,23 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
       this._poll_timer.Stop()
       this._logger.Debug("Popup close, killed polling timer")
       if (!this._error_msg->empty())
-        this._logger.Debug("Error while executing cmd: ", this._cmd)
-        this._logger.DebugCR(this._error_msg)
+        this._logger.Debug("Error while executing cmd: " .. this._cmd)
+        this._logger.DebugList(this._error_msg)
       endif
       return
     endif
 
     if (this._buffer->empty()) # no more buffer to process stop polling timer
       this._poll_timer.Stop()
-      this._logger.Debug("no more buffer, data stream end, stop timer")
+      this._logger.Debug("Buffer is empty, data stream end, stop polling timer")
       if (!this._error_msg->empty())
-        this._logger.Debug("Error while executing cmd: ", this._cmd)
-        this._logger.DebugCR(this._error_msg)
+        this._logger.Debug("Error while executing cmd: " .. this._cmd)
+        this._logger.DebugList(this._error_msg)
       endif
       return
     endif
       var payload = this._buffer->remove(0, this._buffer->len() - 1) # consume the buffer
-      this._logger.Debug("Fetching iput list, payloads: ", payload->len(), "records -  total:", this._input_list->len())
+      this._logger.Debug("Fetching iput list, payloads: " .. payload->len() .. " records -  total: " .. this._input_list->len())
       this.Match()
       this.SetText()
   enddef
@@ -396,11 +408,61 @@ export class Buffer extends AbstractFuzzy
   enddef
 endclass
 
+export class VimKeyMap extends AbstractFuzzy implements Runnable
+  public static final Instance: VimKeyMap = VimKeyMap.new()
+
+  def Before()
+    Timer.new("KeyMap").Start(this)
+  enddef
+  def _OnEnter()
+    this.Execute()
+  enddef
+  def GetSelected(): string
+    return this._matched_list[0][this._selected_id].text
+  enddef
+  def Run()
+    this._input_list = execute('map')->split("\n")->mapnew((_, v) => ({'text': v})) 
+    this.SetText2()
+  enddef
+endclass
+
+export class Explorer extends AbstractFuzzy
+  public static final Instance: Explorer = Explorer.new()
+  def new()
+    this._key_maps = [{ 'keys': ["-"], 'cb': this.ParentDir}]->extend(this._key_maps)
+  enddef
+  def Enter()
+    if (!this._matched_list[0]->empty())
+      if (this.GetSelected()->filereadable())
+        this.Edit()
+        this.Cancel()
+      else
+        this.ChangeDir(this.GetSelected())
+      endif
+    endif
+  enddef
+  def Before()
+    this._input_list = getcompletion('', 'file')->mapnew((_, v) => ({'text': v})) 
+  enddef
+  def SetStatus()
+    popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} {getcwd()}' })
+  enddef
+  def ParentDir()
+    this.ChangeDir("..")
+  enddef
+  def ChangeDir(dir: string)
+    win_execute(this._popup_id, $"cd {dir}")
+    this.Before() # update list of file/directories
+    this._searchstr = ""
+    this.SetText2()
+  enddef
+endclass
+
 export class Find extends ShellFuzzy
   public static final Instance: Find = Find.new()
   def Before()
     super.Before()
-    # ShellFuzzy store all args, in this case it is just a file path 
+    # ShellFuzzy store all args in _cmd, in this case it is just a file path 
     var pat = this._cmd->empty() ? expand('%:p:h') : this._cmd
     this._cmd = 'find ' .. pat .. ' -type f -not -path "*/\.git/*"'
   enddef
