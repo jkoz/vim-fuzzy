@@ -20,9 +20,9 @@ class Logger
 endclass
 
 interface MessageHandler
-  def OnMessage(ch: channel, msg: string)
-  def OnError(ch: channel, msg: string)
-  def OnExit(ch: job, status: number)
+  def Message(ch: channel, msg: string)
+  def Error(ch: channel, msg: string)
+  def Exit(ch: job, status: number)
 endinterface
 
 class Job
@@ -32,7 +32,7 @@ class Job
     this._handler = s
   enddef
   def Start(cmd: string)
-    this._job = job_start(cmd, {out_cb: this._handler.OnMessage, err_cb: this._handler.OnError, exit_cb: this._handler.OnExit})
+    this._job = job_start(cmd, {out_cb: this._handler.Message, err_cb: this._handler.Error, exit_cb: this._handler.Exit})
   enddef
   def IsDead(): bool
     return job_status(this._job) ==# 'dead'
@@ -108,7 +108,7 @@ abstract class AbstractFuzzy
   var _matched_list: list<list<any>> # return by matchfuzzypos() 
   var _bufnr: number
   var _popup_id: number
-  var _prompt: string = ">> "
+  var _prompt: string = ""
   var _searchstr: string
   var _key: string # user input key
 
@@ -226,7 +226,10 @@ abstract class AbstractFuzzy
     endif
   enddef
   def Execute()
-    feedkeys($": {this.GetSelected()}", "n") # feed keys to command only, don't execute it 
+    this.PrintOnly()
+  enddef
+  def PrintOnly()
+    feedkeys($":{this.GetSelected()}", "n") # feed keys to command only, don't execute it 
   enddef
 endclass 
 
@@ -272,7 +275,7 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
   var _error_msg: list<string>
 
   def _OnEnter()
-    this.Edit()
+    this.PrintOnly()
   enddef
   def GetSelected(): string
     return this._matched_list[0][this._selected_id].realtext
@@ -288,17 +291,23 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
   def Search(searchstr: string = "")
     super.Search(searchstr)
 
+    var tmp_file = tempname()
+    writefile([this._cmd], tmp_file)
+
     this._job = Job.new(this)
-    this._job.Start(this._cmd) 
+    this._job.Start("sh " .. tmp_file) 
 
     this._logger.Debug("Running command: " .. this._cmd)
 
     this._poll_timer = Timer.new('Poll timer', 100, -1)
     this._poll_timer.Start(this)
+
+    popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderRunning'] })
   enddef
   def Run()
     if (popup_getpos(this._popup_id)->empty())
       this._poll_timer.Stop()
+      popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderNormal'] })
       this._logger.Debug("Popup close, killed polling timer")
       if (!this._error_msg->empty())
         this._logger.Debug("Error while executing cmd: " .. this._cmd)
@@ -307,31 +316,33 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
       return
     endif
 
-    if (this._buffer->empty()) # no more buffer to process stop polling timer
-      this._poll_timer.Stop()
-      this._logger.Debug("Buffer is empty, data stream end, stop polling timer")
-      if (!this._error_msg->empty())
-        this._logger.Debug("Error while executing cmd: " .. this._cmd)
-        this._logger.DebugList(this._error_msg)
+    if (this._buffer->empty()) 
+      if (this._job.IsDead())  # job dead, buffer is empty. Let's stop the timer
+        this._poll_timer.Stop()
+        popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderNormal'] })
+        this._logger.Debug("Buffer is empty, data stream end, stop polling timer")
+        if (!this._error_msg->empty())
+          this._logger.Debug("Error while executing cmd: " .. this._cmd)
+          this._logger.DebugList(this._error_msg)
+        endif
       endif
-      return
-    endif
+    else # buffer is not empty, lets match it
       var payload = this._buffer->remove(0, this._buffer->len() - 1) # consume the buffer
       this._logger.Debug("Fetching iput list, payloads: " .. payload->len() .. " records -  total: " .. this._input_list->len())
       this.Match()
       this.SetText()
+    endif
   enddef
 
-
-  def OnMessage(ch: channel, msg: string)
+  def Message(ch: channel, msg: string)
     var message: dict<any> = { 'text': msg->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': msg }
     this._input_list->add(message)    
     this._buffer->add(message)
   enddef
-  def OnError(ch: channel, msg: string)
+  def Error(ch: channel, msg: string)
     this._error_msg->add(msg)
   enddef
-  def OnExit(ch: job, status: number)
+  def Exit(ch: job, status: number)
   enddef
 endclass
 
@@ -374,7 +385,10 @@ export class CmdHistory extends AbstractFuzzy implements Runnable
   enddef
   def Run()
     # convert list of id to list of string commands
-    this._input_list = [ { 'text': histget('cmd') } ] + range(1, histnr('cmd'))->mapnew((_, v) =>  ({ 'text': histget('cmd', v) }) )  
+    this._input_list = [ { 'text': histget('cmd') } ] + range(1, histnr('cmd'))
+      ->mapnew((_, v) => ({'text': 'cmd'->histget(v)->substitute('^[ \t]*\(.*\)[ \t]*$', '\1', '')}))
+      ->sort()->uniq()  
+    
     this.SetText2()
   enddef
 endclass
@@ -445,7 +459,7 @@ export class Explorer extends AbstractFuzzy
     this._input_list = getcompletion('', 'file')->mapnew((_, v) => ({'text': v})) 
   enddef
   def SetStatus()
-    popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} {getcwd()}' })
+    popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} {getcwd()} ' })
   enddef
   def ParentDir()
     this.ChangeDir("..")
@@ -466,6 +480,9 @@ export class Find extends ShellFuzzy
     var pat = this._cmd->empty() ? expand('%:p:h') : this._cmd
     this._cmd = 'find ' .. pat .. ' -type f -not -path "*/\.git/*"'
   enddef
+  def _OnEnter()
+    this.Edit()
+  enddef
 endclass
 
 export class GitFile extends ShellFuzzy
@@ -479,5 +496,18 @@ export class GitFile extends ShellFuzzy
   enddef
   def GetSelected(): string
     return this._file_pwd .. "/" .. this._matched_list[0][this._selected_id].realtext
+  enddef
+  def _OnEnter()
+    this.Edit()
+  enddef
+endclass
+
+export class Help extends AbstractFuzzy
+  public static final Instance: Help = Help.new()
+  def Before()
+    this._input_list = globpath(&runtimepath, 'doc/tags', 1)->split('\n')->sort()->mapnew((_, v) =>  ({ 'text': v}))
+  enddef
+  def _OnEnter()
+    this.PrintOnly()
   enddef
 endclass
