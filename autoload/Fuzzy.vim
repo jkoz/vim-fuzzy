@@ -147,14 +147,14 @@ abstract class AbstractFuzzy
   def Match()
     if this._searchstr->empty() 
       this._matched_list = [this._input_list]
-    else
+    else 
       this._matched_list = this.MatchFuzzyPos(this._searchstr, this._input_list)
     endif
   enddef         
 
   # implements by subclass, fetch orginal list, start timer, jobs etc..
-  def Before()
-  enddef
+  abstract def Before()
+  
   def Search(searchstr: string = "")
     this._searchstr = searchstr
     this.Before()  # subclass fuzzy to populate _input_list
@@ -191,15 +191,17 @@ abstract class AbstractFuzzy
     endfor
     return false
   enddef
+  def Close()
+      popup_close(this._popup_id)
+  enddef
   def Enter()
     if (!this._matched_list[0]->empty())
       this._OnEnter()
-      this.Cancel() # close popup
+      this.Close() # close popup
     endif
   enddef
   def Cancel()
-      popup_close(this._popup_id)
-      echo ""
+    this.Close()
   enddef
   def Up(): void
     this._selected_id = max([this._selected_id - 1, 0])
@@ -449,7 +451,7 @@ export class Explorer extends AbstractFuzzy
     if (!this._matched_list[0]->empty())
       if (this.GetSelected()->filereadable())
         this.Edit()
-        this.Cancel()
+        this.Close()
       else
         this.ChangeDir(this.GetSelected())
       endif
@@ -504,10 +506,23 @@ endclass
 
 export class Help extends AbstractFuzzy
   public static final Instance: Help = Help.new()
+  var _user_tags: string
+  var _user_wildoptions: string
   def Before()
+    this._user_tags = &tags # store user tags before search
+    this._user_wildoptions = &wildoptions
     this._input_list = globpath(&runtimepath, 'doc/tags', 1)->split('\n')->sort()->mapnew((_, v) =>  ({ 'text': v}))
+    execute("set wildoptions=fuzzy")
+    this._input_list = getcompletion('', 'help')->mapnew((_, v) => ({ 'text': v} ))
   enddef
   def _OnEnter()
-    this.PrintOnly()
+    execute(":help " .. this.GetSelected())
+  enddef
+  def Close()
+    super.Close()
+    execute("set wildoptions=" .. this._user_wildoptions)
+  enddef
+  def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
+    return getcompletion(ss->map((_, v) => v .. "*" ), 'help')->mapnew((_, v) => ({ 'text': v}))->matchfuzzypos(ss, {'key': 'text'})
   enddef
 endclass
