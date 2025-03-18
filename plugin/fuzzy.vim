@@ -17,7 +17,9 @@ com! FuzzyGitFile Fuzzy.GitFile.Instance.Search()
 com! FuzzyExplorer Fuzzy.Explorer.Instance.Search() 
 com! FuzzyKeyMap Fuzzy.VimKeyMap.Instance.Search() 
 com! FuzzyHelp Fuzzy.Help.Instance.Search() 
+com! FuzzyTag Fuzzy.Tag.Instance.Search() 
 
+nn ,s :FuzzyShell
 nn ,m <cmd>FuzzyMRU<cr>
 nn ,l <cmd>FuzzyLine<cr>
 nn ,f <cmd>FuzzyFind<cr>
@@ -28,7 +30,7 @@ nn ,g <cmd>FuzzyGitFile<cr>
 nn ,e <cmd>FuzzyExplorer<cr>
 nn ,k <cmd>FuzzyKeyMap<cr>
 nn ,h <cmd>FuzzyHelp<cr>
-nn ,s :FuzzyShell 
+nn ,n <cmd>FuzzyTag<cr>
 
 if !hlexists('FuzzyMatch')
   hi FuzzyMatch term=inverse cterm=inverse ctermfg=64 ctermbg=0

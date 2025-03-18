@@ -108,22 +108,24 @@ abstract class AbstractFuzzy
   var _matched_list: list<list<any>> # return by matchfuzzypos() 
   var _bufnr: number
   var _popup_id: number
-  var _prompt: string = ""
+  var _prompt: string = "> "
   var _searchstr: string
   var _key: string # user input key
 
   def Format()
     clearmatches(this._popup_id)
     matchaddpos('FuzzyMatch', [this._selected_id + 2], 10, -1, { window: this._popup_id })
+    this.SetStatus()
   enddef
   def SetText()
     # just display number of lines popup can show
     var popup_display_list = this._matched_list[0]->slice(0, &lines)
     if (this._matched_list->len() > 1 && !this._matched_list[1]->empty())
-        popup_display_list = popup_display_list->mapnew((i, t) => {
-          return { 'text': t.text, 'props': this._matched_list[1][i]->mapnew((j, k) => ({'col': k + 1, 'length': 1, 'type': 'FuzzyMatchCharacter' }))}
-        })
+      popup_display_list = popup_display_list->mapnew((i, t) => {
+        return { 'text': t.text, 'props': this._matched_list[1][i]->mapnew((j, k) => ({'col': k + 1, 'length': 1, 'type': 'FuzzyMatchCharacter' }))}
+      })
     endif
+
     popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + popup_display_list)
     this.SetStatus()
   enddef
@@ -134,7 +136,7 @@ abstract class AbstractFuzzy
   enddef
 
   def SetStatus()
-    popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} ' })
+    popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} {this.GetSelectedRealText()} ' })
   enddef
 
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
@@ -153,7 +155,8 @@ abstract class AbstractFuzzy
   enddef         
 
   # implements by subclass, fetch orginal list, start timer, jobs etc..
-  abstract def Before()
+  def Before()
+  enddef
   
   def Search(searchstr: string = "")
     this._searchstr = searchstr
@@ -219,8 +222,14 @@ abstract class AbstractFuzzy
   def Edit()
     execute($"edit {this.GetSelected()}")
   enddef
-  def GetSelected(): string
-    return this._matched_list[0][this._selected_id].text
+  def GetSelected(): string # get real text
+    return this.GetSelectedText()
+  enddef
+  def GetSelectedText(): string
+    return this._matched_list[0]->empty() ? '' : this._matched_list[0][this._selected_id].text
+  enddef
+  def GetSelectedRealText(): string
+    return this._matched_list[0]->empty() ? '' : this._matched_list[0][this._selected_id]->get('realtext', '')
   enddef
   def Jump()
     if (!this._matched_list[0]->empty())
@@ -280,7 +289,7 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
     this.PrintOnly()
   enddef
   def GetSelected(): string
-    return this._matched_list[0][this._selected_id].realtext
+    return this.GetSelectedRealText()
   enddef
   def Before()
     super.Before()
@@ -354,7 +363,7 @@ export class MRU extends AbstractFuzzy
     this.Edit()
   enddef
   def GetSelected(): string
-    return this._matched_list[0][this._selected_id].realtext
+    return this.GetSelectedRealText()
   enddef
   def Before()
     this._input_list = v:oldfiles->copy()->filter((_, v) => 
@@ -415,7 +424,7 @@ export class Buffer extends AbstractFuzzy
     this.Edit()
   enddef
   def GetSelected(): string
-    return this._matched_list[0][this._selected_id].realtext
+    return this.GetSelectedRealText()
   enddef
   def Before()
     this._input_list = getcompletion('', 'buffer')->filter((_, v) => 
@@ -432,9 +441,6 @@ export class VimKeyMap extends AbstractFuzzy implements Runnable
   enddef
   def _OnEnter()
     this.Execute()
-  enddef
-  def GetSelected(): string
-    return this._matched_list[0][this._selected_id].text
   enddef
   def Run()
     this._input_list = execute('map')->split("\n")->mapnew((_, v) => ({'text': v})) 
@@ -497,23 +503,20 @@ export class GitFile extends ShellFuzzy
     this._cmd = 'sh -c "git -C ' .. this._file_pwd .. ' rev-parse --show-toplevel | xargs git -C ' .. this._file_pwd .. ' ls-files"'
   enddef
   def GetSelected(): string
-    return this._file_pwd .. "/" .. this._matched_list[0][this._selected_id].realtext
+    return this._file_pwd .. "/" .. this.GetSelectedRealText()
   enddef
   def _OnEnter()
     this.Edit()
   enddef
 endclass
 
-export class Help extends AbstractFuzzy
-  public static final Instance: Help = Help.new()
-  var _user_tags: string
+abstract class AbstractVimFuzzy extends AbstractFuzzy
   var _user_wildoptions: string
+  var _type: string
   def Before()
-    this._user_tags = &tags # store user tags before search
     this._user_wildoptions = &wildoptions
-    this._input_list = globpath(&runtimepath, 'doc/tags', 1)->split('\n')->sort()->mapnew((_, v) =>  ({ 'text': v}))
     execute("set wildoptions=fuzzy")
-    this._input_list = getcompletion('', 'help')->mapnew((_, v) => ({ 'text': v} ))
+    this._input_list = getcompletion('', this._type)->mapnew((_, v) => ({ 'text': v} ))
   enddef
   def _OnEnter()
     execute(":help " .. this.GetSelected())
@@ -523,6 +526,25 @@ export class Help extends AbstractFuzzy
     execute("set wildoptions=" .. this._user_wildoptions)
   enddef
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
-    return getcompletion(ss->map((_, v) => v .. "*" ), 'help')->mapnew((_, v) => ({ 'text': v}))->matchfuzzypos(ss, {'key': 'text'})
+    return getcompletion(ss->map((_, v) => v .. "*" ), this._type)->mapnew((_, v) => ({ 'text': v}))->matchfuzzypos(ss, {'key': 'text'})
+  enddef
+endclass
+
+export class Help extends AbstractVimFuzzy
+  public static final Instance: Help = Help.new()
+  def new()
+    this._type = 'help'
+  enddef
+  def _OnEnter()
+    execute(":help " .. this.GetSelected())
+  enddef
+endclass
+export class Tag extends AbstractVimFuzzy
+  public static final Instance: Tag = Tag.new()
+  def new()
+    this._type = 'tag'
+  enddef
+  def _OnEnter()
+    execute(":tag " .. this.GetSelected())
   enddef
 endclass
