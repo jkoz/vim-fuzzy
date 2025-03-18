@@ -526,7 +526,7 @@ abstract class AbstractVimFuzzy extends AbstractFuzzy
     execute("set wildoptions=" .. this._user_wildoptions)
   enddef
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
-    return getcompletion(ss->map((_, v) => v .. "*" ), this._type)->mapnew((_, v) => ({ 'text': v}))->matchfuzzypos(ss, {'key': 'text'})
+    return getcompletion("*" .. ss->map((_, v) => v .. "*" ), this._type)->mapnew((_, v) => ({ 'text': v}))->matchfuzzypos(ss, {'key': 'text'})
   enddef
 endclass
 
