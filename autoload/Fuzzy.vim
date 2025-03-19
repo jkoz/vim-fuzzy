@@ -98,10 +98,10 @@ abstract class AbstractFuzzy
     { 'keys': ["\<ScrollWheelDown>"]},
     { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
     { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
-    { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>"], 'cb': this.Up, 'format': this.Format},
-    { 'keys': ["\<C-n>", "\<Tab>", "\<Down>"], 'cb': this.Down, 'format': this.Format},
-    { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText, 'format': this.Format}, 
-    { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText, 'format': this.Format }]
+    { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>"], 'cb': this.Up, 'setcursor': this.SetCursor, 'setstatus': this.SetStatus },
+    { 'keys': ["\<C-n>", "\<Tab>", "\<Down>"], 'cb': this.Down, 'setcursor': this.SetCursor, 'setstatus': this.SetStatus },
+    { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText, 'setcursor': this.SetCursor}, 
+    { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText, 'setcursor': this.SetCursor }]
   var _selected_id: number = 0  # current selected index
   var _input_list: list<any>  # input list 
   # [['fkalackdlakdflala', 'claylakclac'], [[13, 14, 15, 16], [1, 2, 4, 5]], [192, 164]]
@@ -112,12 +112,15 @@ abstract class AbstractFuzzy
   var _searchstr: string
   var _key: string # user input key
 
-  def Format()
+  def SetCursor()
     clearmatches(this._popup_id)
     matchaddpos('FuzzyMatch', [this._selected_id + 2], 10, -1, { window: this._popup_id })
-    this.SetStatus()
   enddef
   def SetText()
+    if (this._matched_list[0]->empty() && this._searchstr->empty())
+      this._matched_list = [this._input_list]
+    endif
+
     # just display number of lines popup can show
     var popup_display_list = this._matched_list[0]->slice(0, &lines)
     if (this._matched_list->len() > 1 && !this._matched_list[1]->empty())
@@ -125,33 +128,21 @@ abstract class AbstractFuzzy
         return { 'text': t.text, 'props': this._matched_list[1][i]->mapnew((j, k) => ({'col': k + 1, 'length': 1, 'type': 'FuzzyMatchCharacter' }))}
       })
     endif
-
     popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + popup_display_list)
     this.SetStatus()
   enddef
-  def SetText2()
-    this._matched_list = [this._input_list]
-    popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + this._matched_list[0])
-    this.SetStatus()
-  enddef
-
   def SetStatus()
     popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} {this.GetSelectedRealText()} ' })
   enddef
-
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
     var b = reltime()
     var ret = items->matchfuzzypos(ss, {'key': 'text'})
-    this._logger.Debug("Matching [" .. ss .. "] on " .. items->len() .. " records. Took " .. b->reltime()->reltimefloat() * 1000)
+    this._logger.Debug("Matching [" .. ss .. "] on " .. items->len() .. " records. " .. ret[1]->len() .. " matched! Took " .. b->reltime()->reltimefloat() * 1000)
     return ret
   enddef
 
   def Match()
-    if this._searchstr->empty() 
-      this._matched_list = [this._input_list]
-    else 
-      this._matched_list = this.MatchFuzzyPos(this._searchstr, this._input_list)
-    endif
+    this._matched_list = this.MatchFuzzyPos(this._searchstr, this._input_list)
   enddef         
 
   # implements by subclass, fetch orginal list, start timer, jobs etc..
@@ -171,7 +162,7 @@ abstract class AbstractFuzzy
         filter: this._OnKeyDown,
       }))
     this._bufnr = winbufnr(this._popup_id)
-    this.Format()
+    this.SetCursor()
     this.After()
   enddef
   def After()
@@ -188,7 +179,8 @@ abstract class AbstractFuzzy
         item.cb()
         (!item->has_key('match')) ?? item.match() 
         (!item->has_key('settext')) ?? item.settext() 
-        (!item->has_key('format')) ?? item.format() 
+        (!item->has_key('setcursor')) ?? item.setcursor() 
+        (!item->has_key('setstatus')) ?? item.setstatus() 
         return true
       endif
     endfor
@@ -251,25 +243,20 @@ abstract class AbstractCachedFuzzy extends AbstractFuzzy
     this._cached_list = {}
   enddef
 
-  def Match()
-    if this._searchstr->empty() 
-      this._matched_list = [this._input_list]
-      return
-    endif
+  def UpdateCachedList()
+    this._cached_list[this._searchstr] = { 'data': this._matched_list, 'input_list_size': this._input_list->len()}
+  enddef
 
+  def Match()
     var previous_matched_list = this._cached_list->get(this._searchstr, [])
     if (previous_matched_list->empty())
       this._matched_list = this.MatchFuzzyPos(this._searchstr, this._input_list)
-      this._cached_list[this._searchstr] = { 'data': this._matched_list, 'input_list_size': this._input_list->len()}
+      this.UpdateCachedList()
     else
-      if (previous_matched_list.input_list_size !=# this._input_list->len())
-        var chopped_list = this._input_list->slice(previous_matched_list.input_list_size, this._input_list->len() - 1)
-
-        this._logger.Debug("Cached record out of update! Reperform fuzzy search on " .. chopped_list->len() .. " addition records")
-
-        this._matched_list = this.MatchFuzzyPos(this._searchstr, previous_matched_list.data[0] + chopped_list)
-        # this._matched_list = this.MatchFuzzyPos(this._searchstr, this._input_list)
-        this._cached_list[this._searchstr] = { 'data': this._matched_list, 'input_list_size': this._input_list->len()}
+      if (previous_matched_list.input_list_size != this._input_list->len())
+        this._matched_list = this.MatchFuzzyPos(this._searchstr, previous_matched_list.data[0] + 
+          this._input_list->slice(previous_matched_list.input_list_size, this._input_list->len() - 1))
+        this.UpdateCachedList()
       else
         this._matched_list = previous_matched_list.data
       endif
@@ -382,7 +369,7 @@ export class Line extends AbstractFuzzy implements Runnable
   enddef
   def Run()
     this._input_list = matchbufline(winbufnr(0), '\S.*', 1, '$') 
-    this.SetText2()
+    this.SetText()
   enddef
 endclass
 
@@ -399,8 +386,7 @@ export class CmdHistory extends AbstractFuzzy implements Runnable
     this._input_list = [ { 'text': histget('cmd') } ] + range(1, histnr('cmd'))
       ->mapnew((_, v) => ({'text': 'cmd'->histget(v)->substitute('^[ \t]*\(.*\)[ \t]*$', '\1', '')}))
       ->sort()->uniq()  
-    
-    this.SetText2()
+    this.SetText()
   enddef
 endclass
 
@@ -414,7 +400,7 @@ export class Cmd extends AbstractFuzzy implements Runnable
   enddef
   def Run()
     this._input_list = getcompletion('', 'command')->mapnew((_, v) => ({'text': v})) 
-    this.SetText2()
+    this.SetText()
   enddef
 endclass
 
@@ -444,7 +430,7 @@ export class VimKeyMap extends AbstractFuzzy implements Runnable
   enddef
   def Run()
     this._input_list = execute('map')->split("\n")->mapnew((_, v) => ({'text': v})) 
-    this.SetText2()
+    this.SetText()
   enddef
 endclass
 
@@ -474,9 +460,10 @@ export class Explorer extends AbstractFuzzy
   enddef
   def ChangeDir(dir: string)
     win_execute(this._popup_id, $"cd {dir}")
-    this.Before() # update list of file/directories
-    this._searchstr = ""
-    this.SetText2()
+    this._searchstr = "" # clear out prompt search string, as we move to target dir
+    this._matched_list = [[]] # reset matched list, so SetText() will reset to input_list
+    this.Before() # update new input list
+    this.SetText()
   enddef
 endclass
 
