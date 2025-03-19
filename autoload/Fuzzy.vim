@@ -1,4 +1,4 @@
-vim9script 
+vim9script
 
 class Logger
   var _debug: bool = true
@@ -104,7 +104,6 @@ abstract class AbstractFuzzy
     { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText, 'setcursor': this.SetCursor }]
   var _selected_id: number = 0  # current selected index
   var _input_list: list<any>  # input list 
-  # [['fkalackdlakdflala', 'claylakclac'], [[13, 14, 15, 16], [1, 2, 4, 5]], [192, 164]]
   var _matched_list: list<list<any>> # return by matchfuzzypos() 
   var _bufnr: number
   var _popup_id: number
@@ -450,7 +449,7 @@ export class Explorer extends AbstractFuzzy
     endif
   enddef
   def Before()
-    this._input_list = getcompletion('', 'file')->mapnew((_, v) => ({'text': v})) 
+    this._input_list = getcompletion('.*\|*', 'file')->mapnew((_, v) => ({'text': v})) 
   enddef
   def SetStatus()
     popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} {getcwd()} ' })
@@ -461,7 +460,7 @@ export class Explorer extends AbstractFuzzy
   def ChangeDir(dir: string)
     win_execute(this._popup_id, $"cd {dir}")
     this._searchstr = "" # clear out prompt search string, as we move to target dir
-    this._matched_list = [[]] # reset matched list, so SetText() will reset to input_list
+    this._matched_list = [[]] # reset matched list, so SetText() will reset matched_list to input_list
     this.Before() # update new input list
     this.SetText()
   enddef
@@ -513,7 +512,8 @@ abstract class AbstractVimFuzzy extends AbstractFuzzy
     execute("set wildoptions=" .. this._user_wildoptions)
   enddef
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
-    return getcompletion("*" .. ss->map((_, v) => v .. "*" ), this._type)->mapnew((_, v) => ({ 'text': v}))->matchfuzzypos(ss, {'key': 'text'})
+    return getcompletion("*" .. ss->map((_, v) => v .. "*" ), this._type)
+      ->mapnew((_, v) => ({ 'text': v}))->matchfuzzypos(ss, {'key': 'text'})
   enddef
 endclass
 
