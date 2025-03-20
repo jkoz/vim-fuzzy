@@ -437,6 +437,7 @@ export class Explorer extends AbstractFuzzy
   public static final Instance: Explorer = Explorer.new()
   def new()
     this._key_maps = [{ 'keys': ["-"], 'cb': this.ParentDir}]->extend(this._key_maps)
+    this._prompt = '> '
   enddef
   def Enter()
     if (!this._matched_list[0]->empty())
@@ -449,10 +450,20 @@ export class Explorer extends AbstractFuzzy
     endif
   enddef
   def Before()
-    this._input_list = getcompletion('.*\|*', 'file')->mapnew((_, v) => ({'text': v})) 
+    this._input_list = getcompletion('.*\|*', 'file')->filter((_, v) => v !~ '\./')->mapnew((_, v) => ({'text': v})) 
   enddef
   def SetStatus()
-    popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} {getcwd()} ' })
+    var fsel = this.GetSelected()
+    var cwd = getcwd() == '/' ? '' : getcwd()
+    var dsel = fsel =~ './|../'->escape('.|') ? '' : ' ' .. cwd .. '/' .. fsel
+
+    var fsize = fsel->getfsize()
+    var dfsize = fsize <= 0 ? '' : ' ' .. fsize->string()
+    var ftime = fsel->getftime()
+    var dftime = ftime < 0  ? '' : ' ' .. ('%b %d %H:%M')->strftime(ftime)
+    var extra_info = " [" .. fsel->getftype() .. dftime .. dfsize .. "] "
+    
+    popup_setoptions(this._popup_id, { "title": $'{dsel}{extra_info}' })
   enddef
   def ParentDir()
     this.ChangeDir("..")
@@ -461,6 +472,8 @@ export class Explorer extends AbstractFuzzy
     win_execute(this._popup_id, $"cd {dir}")
     this._searchstr = "" # clear out prompt search string, as we move to target dir
     this._matched_list = [[]] # reset matched list, so SetText() will reset matched_list to input_list
+    this._selected_id = 0
+    this.SetCursor()
     this.Before() # update new input list
     this.SetText()
   enddef
@@ -502,6 +515,9 @@ abstract class AbstractVimFuzzy extends AbstractFuzzy
   def Before()
     this._user_wildoptions = &wildoptions
     execute("set wildoptions=fuzzy")
+    this.GetInitialInputList()
+  enddef
+  def GetInitialInputList()
     this._input_list = getcompletion('', this._type)->mapnew((_, v) => ({ 'text': v} ))
   enddef
   def _OnEnter()
@@ -533,5 +549,32 @@ export class Tag extends AbstractVimFuzzy
   enddef
   def _OnEnter()
     execute(":tag " .. this.GetSelected())
+  enddef
+endclass
+
+export class Prompt extends AbstractVimFuzzy
+  public static final Instance: Prompt = Prompt.new()
+  def new()
+    this._type = 'command'
+    this._prompt = ':'
+    this._key_maps = [{ 'keys': [" "], 'cb': this.NextCmd}]->extend(this._key_maps)
+  enddef
+  def GetInitialInputList()
+    # pull last use command here
+  enddef
+  def _OnEnter()
+    this.PrintOnly()
+  enddef
+  def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
+    var nss = ss->empty() ? "" : ss->split(" ")[-1 :][0]
+    return getcompletion(nss, this._type)->mapnew((_, v) => ({ 'text': v}))->matchfuzzypos(nss, {'key': 'text'})
+  enddef
+  def Before()
+    this._input_list = [{'text': "Type your command"}] 
+  enddef
+  def NextCmd()
+    this.Regular()
+    this._matched_list = [[]]
+    this.SetText()
   enddef
 endclass
