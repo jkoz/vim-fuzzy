@@ -41,10 +41,13 @@ if !hlexists('FuzzyMatchCharacter')
   hi FuzzyMatchCharacter ctermfg=136 cterm=underline 
 endif
 if !hlexists('FuzzyBorderNormal')
-  hi FuzzyBorderNormal ctermfg=64 cterm=none
+  hi FuzzyBorderNormal ctermfg=4 cterm=none
 endif
 if !hlexists('FuzzyBorderRunning')
   hi FuzzyBorderRunning ctermfg=136 cterm=none
+endif
+if !hlexists('FuzzyBorderCommand')
+  hi FuzzyBorderCommand ctermfg=11 cterm=none
 endif
 
 if empty(prop_type_get('FuzzyMatch'))
@@ -56,49 +59,7 @@ endif
 if empty(prop_type_get('FuzzyBorderRunning'))
   prop_type_add('FuzzyBorderRunning', {highlight: "FuzzyBorderRunning", override: true, priority: 1000, combine: true})
 endif
-
-fu CompleteMonths(findstart, base)
-  if a:findstart
-    " locate the start of the word
-    let line = getline('.')
-    let start = col('.') - 1
-    while start > 0 && line[start - 1] =~ '\a'
-      let start -= 1
-    endwhile
-    return start
-  else
-    " find months matching with "a:base"
-    let res = []
-    for m in split("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec")
-      if m =~ '.*' .. a:base
-        call add(res, m)
-      endif
-    endfor
-    return res
-  endif
-endf
-
-# use C-X C-I to trigger
-set completefunc=CompleteMonths
-
-fu Thesaur(findstart, base)
-  if a:findstart
-    return searchpos('\<', 'bnW', line('.'))[1] - 1
-  endif
-  let res = []
-  let h = ''
-  for l in systemlist('aiksaurus ' .. shellescape(a:base))
-    if l[:3] == '=== '
-      let h = '(' .. substitute(l[4:], ' =*$', ')', '')
-    elseif l ==# 'Alphabetically similar known words are: '
-      let h = "\U0001f52e"
-    elseif l[0] =~ '\a' || (h ==# "\U0001f52e" && l[0] ==# "\t")
-      call extend(res, map(split(substitute(l, '^\t', '', ''), ', '), {_, val -> {'word': val, 'menu': h}}))
-    endif
-  endfor
-  return res
-endf
-
-if exists('+thesaurusfunc')
-  set thesaurusfunc=Thesaur
+if empty(prop_type_get('FuzzyBorderCommand'))
+  prop_type_add('FuzzyBorderCommand', {highlight: "FuzzyBorderCommand", override: true, priority: 998, combine: true})
 endif
+

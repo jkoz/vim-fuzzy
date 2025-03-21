@@ -92,16 +92,26 @@ abstract class AbstractFuzzy
         scrollbar: 0,
         borderchars: ['─', '│', '─', '│', '┌', '┐', '┘', '└'],
       }
-  var _key_maps: list<dict<any>> = [
+  var _normal_maps: list<dict<any>> = [
+    { 'keys': ["i"], 'cb': this.InsertMode},
+    { 'keys': ["j"], 'cb': this.Down, 'setcursor': this.SetCursor, 'setstatus': this.SetStatus },
+    { 'keys': ["k"], 'cb': this.Up, 'setcursor': this.SetCursor, 'setstatus': this.SetStatus },
+    { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
+    { 'keys': ["q", "\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
+    { 'keys': [], 'cb': this.NormalRegular },
+  ]
+  var _insert_maps: list<dict<any>> = [
     { 'keys': ["\<ScrollWheelLeft>", "\<ScrollWheelRight>"]},
-    { 'keys': ["\<ScrollWheelUp>"]},
-    { 'keys': ["\<ScrollWheelDown>"]},
+    { 'keys': ["\<PageUp>", "\<PageDown>"]},
+    { 'keys': ["\<ScrollWheelUp>", "\<ScrollWheelDown>"]},
+    { 'keys': [";"], 'cb': this.NormalMode},
     { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
     { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
     { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>"], 'cb': this.Up, 'setcursor': this.SetCursor, 'setstatus': this.SetStatus },
     { 'keys': ["\<C-n>", "\<Tab>", "\<Down>"], 'cb': this.Down, 'setcursor': this.SetCursor, 'setstatus': this.SetStatus },
     { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText, 'setcursor': this.SetCursor}, 
     { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText, 'setcursor': this.SetCursor }]
+  var _mode_maps:  dict<list<dict<any>>> = { 'insert': this._insert_maps, 'normal': this._normal_maps }
   var _selected_id: number = 0  # current selected index
   var _input_list: list<any>  # input list 
   var _matched_list: list<list<any>> # return by matchfuzzypos() 
@@ -110,6 +120,21 @@ abstract class AbstractFuzzy
   var _prompt: string = "> "
   var _searchstr: string
   var _key: string # user input key
+  var _mode: string = 'insert'
+
+  def NormalMode()
+    this._mode = 'normal'
+    popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderCommand'] })
+    echo "[Normal]"
+    this.SetText()
+  enddef
+
+  def InsertMode()
+    this._mode = 'insert'
+    popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderNormal'] })
+    echo "[Insert]"
+    this.SetText()
+  enddef
 
   def SetCursor()
     clearmatches(this._popup_id)
@@ -149,6 +174,7 @@ abstract class AbstractFuzzy
   enddef
   
   def Search(searchstr: string = "")
+    this._mode = 'insert' # first start popup always insert mode
     this._searchstr = searchstr
     this.Before()  # subclass fuzzy to populate _input_list
     this._matched_list = [this._input_list] # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
@@ -169,7 +195,7 @@ abstract class AbstractFuzzy
   enddef
   def _OnKeyDown(winid: number, key: string): bool
     this._key = key
-    for item in this._key_maps
+    for item in this._mode_maps[this._mode]
       if (item.keys->empty() || item.keys->index(key) > -1)
         if (!item->has_key('cb')) 
           this._logger.Debug("No call back, ignored key")
@@ -210,6 +236,9 @@ abstract class AbstractFuzzy
     this._selected_id = 0
     this._searchstr = this._searchstr .. this._key
   enddef 
+  def NormalRegular(): void
+    echo "exe normal regular"
+  enddef
   def Edit()
     execute($"edit {this.GetSelected()}")
   enddef
@@ -436,8 +465,9 @@ endclass
 export class Explorer extends AbstractFuzzy
   public static final Instance: Explorer = Explorer.new()
   def new()
-    this._key_maps = [{ 'keys': ["-"], 'cb': this.ParentDir}]->extend(this._key_maps)
-    this._prompt = '> '
+    this._insert_maps->insert({ 'keys': ["-"], 'cb': this.ParentDir})
+    this._normal_maps->insert({ 'keys': ["d"], 'cb': this.DeleteF})
+    this._normal_maps->insert({ 'keys': ["r"], 'cb': this.RenameF})
   enddef
   def Enter()
     if (!this._matched_list[0]->empty())
@@ -468,8 +498,35 @@ export class Explorer extends AbstractFuzzy
   def ParentDir()
     this.ChangeDir("..")
   enddef
+  def RenameF()
+    inputsave()
+    var c = input($"Rename: {this.GetSelected()} to: ")
+    if (!c->empty())
+      rename(this.GetSelected(), c)
+      echo "Rename successful"
+    else
+      echo "Rename cancel"
+    endif
+    inputrestore()
+    this.RelistDirectory()
+  enddef
+  def DeleteF()
+    inputsave()
+    var c = input($"Are sure to delete: {this.GetSelected()} ? (y/N)")
+    if (c ==# "y")
+      this.GetSelected()->delete("rf")
+      echo $"{this.GetSelected()} is now deleted"
+    else
+      echo "Nothing is deleted"
+    endif
+    inputrestore()
+    this.RelistDirectory()
+  enddef
   def ChangeDir(dir: string)
     win_execute(this._popup_id, $"cd {dir}")
+    this.RelistDirectory()
+  enddef
+  def RelistDirectory()
     this._searchstr = "" # clear out prompt search string, as we move to target dir
     this._matched_list = [[]] # reset matched list, so SetText() will reset matched_list to input_list
     this._selected_id = 0
@@ -556,8 +613,8 @@ export class Prompt extends AbstractVimFuzzy
   public static final Instance: Prompt = Prompt.new()
   def new()
     this._type = 'command'
-    this._prompt = ':'
-    this._key_maps = [{ 'keys': [" "], 'cb': this.NextCmd}]->extend(this._key_maps)
+    # this._prompt = ':'
+    # this._key_maps = [{ 'keys': [" "], 'cb': this.NextCmd}]->extend(this._key_maps)
   enddef
   def GetInitialInputList()
     # pull last use command here
