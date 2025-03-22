@@ -94,8 +94,9 @@ abstract class AbstractFuzzy
       }
   var _normal_maps: list<dict<any>> = [
     { 'keys': ["i"], 'cb': this.InsertMode},
-    { 'keys': ["j"], 'cb': this.Down, 'setcursor': this.SetCursor, 'setstatus': this.SetStatus },
-    { 'keys': ["k"], 'cb': this.Up, 'setcursor': this.SetCursor, 'setstatus': this.SetStatus },
+    { 'keys': ["j"], 'cb': this.Down, 'setstatus': this.SetStatus },
+    { 'keys': ["k"], 'cb': this.Up, 'setstatus': this.SetStatus },
+    { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
     { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
     { 'keys': ["q", "\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
     { 'keys': [], 'cb': this.NormalRegular },
@@ -107,56 +108,64 @@ abstract class AbstractFuzzy
     { 'keys': [";"], 'cb': this.NormalMode},
     { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
     { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
-    { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>"], 'cb': this.Up, 'setcursor': this.SetCursor, 'setstatus': this.SetStatus },
-    { 'keys': ["\<C-n>", "\<Tab>", "\<Down>"], 'cb': this.Down, 'setcursor': this.SetCursor, 'setstatus': this.SetStatus },
-    { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText, 'setcursor': this.SetCursor}, 
-    { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText, 'setcursor': this.SetCursor }]
+    { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>"], 'cb': this.Up, 'setstatus': this.SetStatus },
+    { 'keys': ["\<C-n>", "\<Tab>", "\<Down>"], 'cb': this.Down, 'setstatus': this.SetStatus },
+    { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
+    { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText}]
   var _mode_maps:  dict<list<dict<any>>> = { 'insert': this._insert_maps, 'normal': this._normal_maps }
-  var _selected_id: number = 0  # current selected index
   var _input_list: list<any>  # input list 
   var _matched_list: list<list<any>> # return by matchfuzzypos() 
+  var _has_matched: bool
   var _bufnr: number
   var _popup_id: number
   var _prompt: string = "> "
   var _searchstr: string
   var _key: string # user input key
-  var _mode: string = 'insert'
+  var _mode: string
 
   def NormalMode()
     this._mode = 'normal'
-    popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderCommand'] })
     echo "[Normal]"
-    this.SetText()
   enddef
 
   def InsertMode()
     this._mode = 'insert'
-    popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderNormal'] })
     echo "[Insert]"
     this.SetText()
   enddef
-
-  def SetCursor()
-    clearmatches(this._popup_id)
-    matchaddpos('FuzzyMatch', [this._selected_id + 2], 10, -1, { window: this._popup_id })
+  def ResetCursor()
+    win_execute(this._popup_id, "norm! gg")
+  enddef
+  def GetSelectedId(): number
+    return line('.', this._popup_id) - 1
   enddef
   def SetText()
-    if (this._matched_list[0]->empty() && this._searchstr->empty())
-      this._matched_list = [this._input_list]
+    this._has_matched = true
+    if this._matched_list[0]->empty() 
+      if this._searchstr->empty() # searchstr is now back to empty, gotta pull original list, considering we have all the matches
+        this._matched_list = [this._input_list] 
+      else # matchfuzzypos() return empty matched_list for a ligit searchstr
+        this._matched_list = [[{ 'text': this._searchstr }]]
+        this._has_matched = false
+      endif
     endif
 
     # just display number of lines popup can show
-    var popup_display_list = this._matched_list[0]->slice(0, &lines)
+    var popup_display_list = this._matched_list[0]
     if (this._matched_list->len() > 1 && !this._matched_list[1]->empty())
       popup_display_list = popup_display_list->mapnew((i, t) => {
         return { 'text': t.text, 'props': this._matched_list[1][i]->mapnew((j, k) => ({'col': k + 1, 'length': 1, 'type': 'FuzzyMatchCharacter' }))}
       })
     endif
-    popup_settext(this._popup_id, [{'text': this._prompt .. this._searchstr}] + popup_display_list)
+    popup_settext(this._popup_id, popup_display_list)
     this.SetStatus()
   enddef
+  def AddPadding(...items: list<any>): string
+    var rt = items->filter((_, v) => !v->empty())->reduce((f, l) => f .. ' ' .. l, '')
+    return rt->empty() ? '' : rt .. ' '
+  enddef
   def SetStatus()
-    popup_setoptions(this._popup_id, { "title": $' {this._matched_list[0]->len()} {this.GetSelectedRealText()} ' })
+    popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(!this._has_matched ? '' : this._matched_list[0]->len(), this.GetSelectedRealText())}' })
   enddef
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
     var b = reltime()
@@ -176,18 +185,19 @@ abstract class AbstractFuzzy
   def Search(searchstr: string = "")
     this._mode = 'insert' # first start popup always insert mode
     this._searchstr = searchstr
+    this._has_matched = true
     this.Before()  # subclass fuzzy to populate _input_list
     this._matched_list = [this._input_list] # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
 
-    this._popup_id = popup_create([{'text': this._prompt .. this._searchstr }] + this._matched_list[0], this._popup_opts->extend({
-        minwidth: float2nr(&columns * 0.6),
-        maxwidth: float2nr(&columns * 0.6),
-        maxheight: float2nr(&lines * 0.6),
-        minheight: float2nr(&lines * 0.6),
-        filter: this._OnKeyDown,
-      }))
+    this._popup_id = popup_create(this._matched_list[0], this._popup_opts->extend({
+      cursorline: 1,
+      minwidth: float2nr(&columns * 0.6),
+      maxwidth: float2nr(&columns * 0.6),
+      maxheight: float2nr(&lines * 0.6),
+      minheight: float2nr(&lines * 0.6),
+      filter: this._OnKeyDown,
+    }))
     this._bufnr = winbufnr(this._popup_id)
-    this.SetCursor()
     this.After()
   enddef
   def After()
@@ -204,7 +214,6 @@ abstract class AbstractFuzzy
         item.cb()
         (!item->has_key('match')) ?? item.match() 
         (!item->has_key('settext')) ?? item.settext() 
-        (!item->has_key('setcursor')) ?? item.setcursor() 
         (!item->has_key('setstatus')) ?? item.setstatus() 
         return true
       endif
@@ -224,36 +233,43 @@ abstract class AbstractFuzzy
     this.Close()
   enddef
   def Up(): void
-    this._selected_id = max([this._selected_id - 1, 0])
+    win_execute(this._popup_id, $"norm! k")
   enddef
   def Down(): void
-    this._selected_id = min([this._selected_id + 1, this._matched_list[0]->len() - 1])
+    win_execute(this._popup_id, $"norm! j")
   enddef
   def Delete(): void
     this._searchstr = this._searchstr->substitute(".$", "", "")
   enddef
   def Regular(): void
-    this._selected_id = 0
+    this.ResetCursor()
     this._searchstr = this._searchstr .. this._key
   enddef 
   def NormalRegular(): void
-    echo "exe normal regular"
+    # echo "exe normal regular"
   enddef
   def Edit()
     execute($"edit {this.GetSelected()}")
   enddef
-  def GetSelected(): string # get real text
-    return this.GetSelectedText()
+  def GetSelected(): string
+    # by default get selected will return text
+    return this.GetSelectedItem('text')
   enddef
-  def GetSelectedText(): string
-    return this._matched_list[0]->empty() ? '' : this._matched_list[0][this._selected_id].text
+  def GetSelectedItem(key: string): string
+    if this._matched_list[0]->empty()
+      return ''
+    endif
+    if this._matched_list[0]->len() <= this.GetSelectedId()
+      this.ResetCursor()
+    endif
+    return this._matched_list[0][this.GetSelectedId()]->get(key, '')
   enddef
   def GetSelectedRealText(): string
-    return this._matched_list[0]->empty() ? '' : this._matched_list[0][this._selected_id]->get('realtext', '')
+    return this.GetSelectedItem('realtext')
   enddef
   def Jump()
     if (!this._matched_list[0]->empty())
-      execute($"exec 'normal m`' | :{this._matched_list[0][this._selected_id].lnum} | norm zz")
+      execute($"exec 'normal m`' | :{this._matched_list[0][this.GetSelectedId()].lnum} | norm zz")
     endif
   enddef
   def Execute()
@@ -468,6 +484,7 @@ export class Explorer extends AbstractFuzzy
     this._insert_maps->insert({ 'keys': ["-"], 'cb': this.ParentDir})
     this._normal_maps->insert({ 'keys': ["d"], 'cb': this.DeleteF})
     this._normal_maps->insert({ 'keys': ["r"], 'cb': this.RenameF})
+    this._normal_maps->insert({ 'keys': ["-"], 'cb': this.ParentDir})
   enddef
   def Enter()
     if (!this._matched_list[0]->empty())
@@ -484,23 +501,15 @@ export class Explorer extends AbstractFuzzy
   enddef
   def SetStatus()
     var fsel = this.GetSelected()
-    var cwd = getcwd() == '/' ? '' : getcwd()
-    var dsel = fsel =~ './|../'->escape('.|') ? '' : ' ' .. cwd .. '/' .. fsel
-
-    var fsize = fsel->getfsize()
-    var dfsize = fsize <= 0 ? '' : ' ' .. fsize->string()
-    var ftime = fsel->getftime()
-    var dftime = ftime < 0  ? '' : ' ' .. ('%b %d %H:%M')->strftime(ftime)
-    var extra_info = " [" .. fsel->getftype() .. dftime .. dfsize .. "] "
-    
-    popup_setoptions(this._popup_id, { "title": $'{dsel}{extra_info}' })
+    var dsel = fsel =~ './|../'->escape('.|') ? '' : ' ' .. getcwd() .. ' | ' .. fsel
+    popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(dsel, '[', getfsize(fsel), strftime('%b %d %H:%M', getftime(fsel)), ']') }'})
   enddef
   def ParentDir()
     this.ChangeDir("..")
   enddef
   def RenameF()
     inputsave()
-    var c = input($"Rename: {this.GetSelected()} to: ")
+    var c = input($"Rename: {this.GetSelected()} to ")
     if (!c->empty())
       rename(this.GetSelected(), c)
       echo "Rename successful"
@@ -529,8 +538,7 @@ export class Explorer extends AbstractFuzzy
   def RelistDirectory()
     this._searchstr = "" # clear out prompt search string, as we move to target dir
     this._matched_list = [[]] # reset matched list, so SetText() will reset matched_list to input_list
-    this._selected_id = 0
-    this.SetCursor()
+    this.ResetCursor()
     this.Before() # update new input list
     this.SetText()
   enddef
@@ -613,8 +621,7 @@ export class Prompt extends AbstractVimFuzzy
   public static final Instance: Prompt = Prompt.new()
   def new()
     this._type = 'command'
-    # this._prompt = ':'
-    # this._key_maps = [{ 'keys': [" "], 'cb': this.NextCmd}]->extend(this._key_maps)
+    this._normal_maps->insert({ 'keys': [" "], 'cb': this.NextCmd})
   enddef
   def GetInitialInputList()
     # pull last use command here
@@ -627,7 +634,7 @@ export class Prompt extends AbstractVimFuzzy
     return getcompletion(nss, this._type)->mapnew((_, v) => ({ 'text': v}))->matchfuzzypos(nss, {'key': 'text'})
   enddef
   def Before()
-    this._input_list = [{'text': "Type your command"}] 
+    this._input_list = [] 
   enddef
   def NextCmd()
     this.Regular()

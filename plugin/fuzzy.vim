@@ -46,9 +46,6 @@ endif
 if !hlexists('FuzzyBorderRunning')
   hi FuzzyBorderRunning ctermfg=136 cterm=none
 endif
-if !hlexists('FuzzyBorderCommand')
-  hi FuzzyBorderCommand ctermfg=11 cterm=none
-endif
 
 if empty(prop_type_get('FuzzyMatch'))
   prop_type_add('FuzzyMatch', {highlight: "FuzzyMatch", override: true, priority: 999, combine: true})
@@ -58,8 +55,5 @@ if empty(prop_type_get('FuzzyMatchCharacter'))
 endif
 if empty(prop_type_get('FuzzyBorderRunning'))
   prop_type_add('FuzzyBorderRunning', {highlight: "FuzzyBorderRunning", override: true, priority: 1000, combine: true})
-endif
-if empty(prop_type_get('FuzzyBorderCommand'))
-  prop_type_add('FuzzyBorderCommand', {highlight: "FuzzyBorderCommand", override: true, priority: 998, combine: true})
 endif
 
