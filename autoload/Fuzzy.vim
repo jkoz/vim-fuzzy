@@ -246,7 +246,7 @@ abstract class AbstractFuzzy
     this._searchstr = this._searchstr .. this._key
   enddef 
   def NormalRegular(): void
-    # echo "exe normal regular"
+    win_execute(this._popup_id, $"norm! " .. this._key)
   enddef
   def Edit()
     execute($"edit {this.GetSelected()}")
@@ -501,8 +501,13 @@ export class Explorer extends AbstractFuzzy
   enddef
   def SetStatus()
     var fsel = this.GetSelected()
-    var dsel = fsel =~ './|../'->escape('.|') ? '' : ' ' .. getcwd() .. ' | ' .. fsel
-    popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(dsel, '[', getfsize(fsel), strftime('%b %d %H:%M', getftime(fsel)), ']') }'})
+    var status = fsel =~ '\./\|\.\./' ? '' :  getcwd()
+    if (fsel->filereadable() || fsel->isdirectory())
+      status = this.AddPadding(status, '|', fsel, '[', getfsize(fsel), strftime('%b %d %H:%M', getftime(fsel)), ']')
+    else
+      status = ' ' .. status .. ' '
+    endif
+      popup_setoptions(this._popup_id, { "title": $'{status}'})
   enddef
   def ParentDir()
     this.ChangeDir("..")
