@@ -140,10 +140,11 @@ abstract class AbstractFuzzy
     return line('.', this._popup_id) - 1
   enddef
   def SetText()
-    this._has_matched = true
+    this._has_matched = !this._input_list->empty() # has_matched is based on originial list
     if this._matched_list[0]->empty() 
       if this._searchstr->empty() # searchstr is now back to empty, gotta pull original list, considering we have all the matches
         this._matched_list = [this._input_list] 
+        this._has_matched = true
       else # matchfuzzypos() return empty matched_list for a ligit searchstr
         this._matched_list = [[{ 'text': this._searchstr }]]
         this._has_matched = false
@@ -164,8 +165,11 @@ abstract class AbstractFuzzy
     var rt = items->filter((_, v) => !v->empty())->reduce((f, l) => f .. ' ' .. l, '')
     return rt->empty() ? '' : rt .. ' '
   enddef
+  def GetMatchedNumberStr(): string
+    return this._has_matched ? this._matched_list[0]->len()->string() : ''
+  enddef
   def SetStatus()
-    popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(!this._has_matched ? '' : this._matched_list[0]->len(), this.GetSelectedRealText())}' })
+    popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(this.GetSelectedRealText(), this.GetMatchedNumberStr())}' })
   enddef
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
     var b = reltime()
@@ -185,8 +189,8 @@ abstract class AbstractFuzzy
   def Search(searchstr: string = "")
     this._mode = 'insert' # first start popup always insert mode
     this._searchstr = searchstr
-    this._has_matched = true
     this.Before()  # subclass fuzzy to populate _input_list
+    this._has_matched = !this._input_list->empty()  # has_matched is based on originial list, should be called after Before() since it populate the _input_list
     this._matched_list = [this._input_list] # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
 
     this._popup_id = popup_create(this._matched_list[0], this._popup_opts->extend({
@@ -619,31 +623,5 @@ export class Tag extends AbstractVimFuzzy
   enddef
   def _OnEnter()
     execute(":tag " .. this.GetSelected())
-  enddef
-endclass
-
-export class Prompt extends AbstractVimFuzzy
-  public static final Instance: Prompt = Prompt.new()
-  def new()
-    this._type = 'command'
-    this._normal_maps->insert({ 'keys': [" "], 'cb': this.NextCmd})
-  enddef
-  def GetInitialInputList()
-    # pull last use command here
-  enddef
-  def _OnEnter()
-    this.PrintOnly()
-  enddef
-  def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
-    var nss = ss->empty() ? "" : ss->split(" ")[-1 :][0]
-    return getcompletion(nss, this._type)->mapnew((_, v) => ({ 'text': v}))->matchfuzzypos(nss, {'key': 'text'})
-  enddef
-  def Before()
-    this._input_list = [] 
-  enddef
-  def NextCmd()
-    this.Regular()
-    this._matched_list = [[]]
-    this.SetText()
   enddef
 endclass
