@@ -624,4 +624,8 @@ export class Tag extends AbstractVimFuzzy
   def _OnEnter()
     execute(":tag " .. this.GetSelected())
   enddef
+  def GetInitialInputList()
+    system($"cd {expand('%:p:h')} && exctags {expand('%:p:h')}")
+    super.GetInitialInputList()
+  enddef
 endclass
