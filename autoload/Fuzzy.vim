@@ -6,16 +6,10 @@ class Logger
     ch_logfile('/tmp/vim-fuzzy.log', 'w')
   enddef
   def Debug(str: string)
-    if (this._debug)
-      ch_log("vim-fuzzy.vim [Debug] " .. str)
-    endif
+    if this._debug | ch_log("vim-fuzzy.vim [Debug] " .. str) | endif 
   enddef
   def DebugList(msgs: list<any>)
-    if (this._debug)
-      for it in msgs
-        ch_log("vim-fuzzy.vim [Debug] " .. it->string())
-      endfor
-    endif
+    if this._debug | msgs->foreach((_, v) => ch_log("vim-fuzzy.vim [Debug] " .. v->string())) | endif
   enddef
 endclass
 
@@ -75,7 +69,7 @@ class Timer
     try
       Cb(items)
     catch
-      echo 'Error from ' .. this._name .. ': ' .. v:exception->string()
+      this._logger.Debug('_TimerCB()' .. this._name .. ': ' .. v:exception)
     endtry
   enddef
 endclass
@@ -211,14 +205,10 @@ abstract class AbstractFuzzy
     this._key = key
     for item in this._mode_maps[this._mode]
       if (item.keys->empty() || item.keys->index(key) > -1)
-        if (!item->has_key('cb')) 
-          this._logger.Debug("No call back, ignored key")
-          return false
-        endif
-        item.cb()
-        (!item->has_key('match')) ?? item.match() 
-        (!item->has_key('settext')) ?? item.settext() 
-        (!item->has_key('setstatus')) ?? item.setstatus() 
+        if item->has_key('cb') | item.cb() | else |  return false | endif # if cb is not present, key will be ignored
+        if item->has_key('match') | item.match() | endif
+        if item->has_key('settext') | item.settext() | endif
+        if item->has_key('setstatus') | item.setstatus() | endif
         return true
       endif
     endfor
