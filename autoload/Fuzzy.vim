@@ -478,6 +478,7 @@ export class Explorer extends AbstractFuzzy
     this._insert_maps->insert({ 'keys': ["-"], 'cb': this.ParentDir})
     this._normal_maps->insert({ 'keys': ["d"], 'cb': this.DeleteF})
     this._normal_maps->insert({ 'keys': ["r"], 'cb': this.RenameF})
+    this._normal_maps->insert({ 'keys': ["n"], 'cb': this.NewFile})
     this._normal_maps->insert({ 'keys': ["-"], 'cb': this.ParentDir})
   enddef
   def Enter()
@@ -505,6 +506,12 @@ export class Explorer extends AbstractFuzzy
   enddef
   def ParentDir()
     this.ChangeDir("..")
+  enddef
+  def NewFile()
+    inputsave()
+    execute($"edit {input($"New file: ")}")
+    inputrestore()
+    this.Close()
   enddef
   def RenameF()
     inputsave()
