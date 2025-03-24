@@ -86,27 +86,29 @@ abstract class AbstractFuzzy
         scrollbar: 0,
         borderchars: ['─', '│', '─', '│', '┌', '┐', '┘', '└'],
       }
-  var _normal_maps: list<dict<any>> = [
-    { 'keys': ["i"], 'cb': this.InsertMode},
-    { 'keys': ["j"], 'cb': this.Down, 'setstatus': this.SetStatus },
-    { 'keys': ["k"], 'cb': this.Up, 'setstatus': this.SetStatus },
-    { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
-    { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
-    { 'keys': ["q", "\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
-    { 'keys': [], 'cb': this.NormalRegular },
-  ]
-  var _insert_maps: list<dict<any>> = [
-    { 'keys': ["\<ScrollWheelLeft>", "\<ScrollWheelRight>"]},
-    { 'keys': ["\<PageUp>", "\<PageDown>"]},
-    { 'keys': ["\<ScrollWheelUp>", "\<ScrollWheelDown>"]},
-    { 'keys': [";"], 'cb': this.NormalMode},
-    { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
-    { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
-    { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>"], 'cb': this.Up, 'setstatus': this.SetStatus },
-    { 'keys': ["\<C-n>", "\<Tab>", "\<Down>"], 'cb': this.Down, 'setstatus': this.SetStatus },
-    { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
-    { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText}]
-  var _mode_maps:  dict<list<dict<any>>> = { 'insert': this._insert_maps, 'normal': this._normal_maps }
+  
+  var _mode_maps:  dict<list<dict<any>>> = { 
+    'insert': [
+      { 'keys': ["\<ScrollWheelLeft>", "\<ScrollWheelRight>"]},
+      { 'keys': ["\<PageUp>", "\<PageDown>"]},
+      { 'keys': ["\<ScrollWheelUp>", "\<ScrollWheelDown>"]},
+      { 'keys': [";"], 'cb': this.NormalMode},
+      { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
+      { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
+      { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>", "\<C-k>"], 'cb': this.Up, 'setstatus': this.SetStatus },
+      { 'keys': ["\<C-n>", "\<Tab>", "\<Down>", "\<C-j>"], 'cb': this.Down, 'setstatus': this.SetStatus },
+      { 'keys': ["\<C-d>", "\<C-u>"], 'cb': this.NormalRegular, 'setstatus': this.SetStatus }, 
+      { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
+      { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText}],
+    'normal': [
+      { 'keys': ["i"], 'cb': this.InsertMode},
+      { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
+      { 'keys': ["q", "\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
+      { 'keys': ["k"], 'cb': this.Up, 'setstatus': this.SetStatus },
+      { 'keys': ["j"], 'cb': this.Down, 'setstatus': this.SetStatus },
+      { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
+      { 'keys': [], 'cb': this.NormalRegular }] 
+  }
   var _input_list: list<any>  # input list 
   var _matched_list: list<list<any>> # return by matchfuzzypos() 
   var _has_matched: bool
@@ -187,12 +189,19 @@ abstract class AbstractFuzzy
     this._has_matched = !this._input_list->empty()  # has_matched is based on originial list, should be called after Before() since it populate the _input_list
     this._matched_list = [this._input_list] # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
 
+    var winpos: list<number> = winnr()->win_screenpos()
+    var height: number = winheight(0) - 2
+    var width: number = winwidth(0)
     this._popup_id = popup_create(this._matched_list[0], this._popup_opts->extend({
+      line: winpos[0],
+      col: winpos[1] + width - 1,
       cursorline: 1,
-      minwidth: float2nr(&columns * 0.6),
-      maxwidth: float2nr(&columns * 0.6),
-      maxheight: float2nr(&lines * 0.6),
-      minheight: float2nr(&lines * 0.6),
+      pos: 'topright',
+      wrap: 0,
+      minwidth: &columns - 4,
+      maxwidth: float2nr(&columns * 0.3),
+      maxheight: &lines - 2,
+      minheight: &lines - 2,
       filter: this.Filter,
     }))
     this._bufnr = winbufnr(this._popup_id)
@@ -397,22 +406,19 @@ export class MRU extends AbstractFuzzy
   enddef
 endclass
 
-export class Line extends AbstractFuzzy implements Runnable
+export class Line extends AbstractFuzzy
   public static final Instance: Line = Line.new()
-  var _regrex: string = '\S.*'
+  var _regrex: string = '.*' # roll back to .* only to keep the format, \S.* will remove file format
   def _OnEnter()
     this.Jump()
   enddef
   def Before()
-    this._regrex = '\S.*' # reset regrex pat to match all every search
+    this._regrex = '.*' # reset regrex pat to match all every search
     if !this._searchstr->empty() | this._regrex = this._searchstr->escape('|') | endif
     this._searchstr = '' # reset searchstr, so we not fuzzy search on this
-    this._input_list = []
-    Timer.new("Line").Start(this)
-  enddef
-  def Run()
     this._input_list = matchbufline(winbufnr(0), this._regrex, 1, '$') 
-    this.SetText()
+  enddef
+  def After()
     setbufvar(this._bufnr, '&filetype', &filetype)
   enddef
 endclass
@@ -481,11 +487,11 @@ endclass
 export class Explorer extends AbstractFuzzy
   public static final Instance: Explorer = Explorer.new()
   def new()
-    this._insert_maps->insert({ 'keys': ["-"], 'cb': this.ParentDir})
-    this._normal_maps->insert({ 'keys': ["d"], 'cb': this.DeleteF})
-    this._normal_maps->insert({ 'keys': ["r"], 'cb': this.RenameF})
-    this._normal_maps->insert({ 'keys': ["n"], 'cb': this.NewFile})
-    this._normal_maps->insert({ 'keys': ["-"], 'cb': this.ParentDir})
+    this._mode_maps['insert']->insert({ 'keys': ["-"], 'cb': this.ParentDir})
+    this._mode_maps['normal']->insert({ 'keys': ["d"], 'cb': this.DeleteF})
+    this._mode_maps['normal']->insert({ 'keys': ["r"], 'cb': this.RenameF})
+    this._mode_maps['normal']->insert({ 'keys': ["n"], 'cb': this.NewFile})
+    this._mode_maps['normal']->insert({ 'keys': ["-"], 'cb': this.ParentDir})
   enddef
   def Enter()
     if (!this._matched_list[0]->empty())
