@@ -7,7 +7,7 @@ import autoload "Fuzzy.vim"
 
 
 com! FuzzyMRU Fuzzy.MRU.Instance.Search() 
-com! FuzzyLine Fuzzy.Line.Instance.Search() 
+com! -nargs=* FuzzyLine Fuzzy.Line.Instance.Search(<q-args>) 
 com! -nargs=* -complete=dir FuzzyFind Fuzzy.Find.Instance.Search(<q-args>) 
 com! -nargs=* -complete=dir FuzzyShell Fuzzy.ShellFuzzy.Instance.Search(<q-args>) 
 com! FuzzyCmdHistory Fuzzy.CmdHistory.Instance.Search() 

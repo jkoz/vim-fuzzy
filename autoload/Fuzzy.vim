@@ -193,7 +193,7 @@ abstract class AbstractFuzzy
       maxwidth: float2nr(&columns * 0.6),
       maxheight: float2nr(&lines * 0.6),
       minheight: float2nr(&lines * 0.6),
-      filter: this._OnKeyDown,
+      filter: this.Filter,
     }))
     this._bufnr = winbufnr(this._popup_id)
     this.After()
@@ -201,7 +201,7 @@ abstract class AbstractFuzzy
   def After()
     this.SetStatus()
   enddef
-  def _OnKeyDown(winid: number, key: string): bool
+  def Filter(winid: number, key: string): bool
     this._key = key
     for item in this._mode_maps[this._mode]
       if (item.keys->empty() || item.keys->index(key) > -1)
@@ -399,15 +399,21 @@ endclass
 
 export class Line extends AbstractFuzzy implements Runnable
   public static final Instance: Line = Line.new()
+  var _regrex: string = '\S.*'
   def _OnEnter()
     this.Jump()
   enddef
   def Before()
+    this._regrex = '\S.*' # reset regrex pat to match all every search
+    if !this._searchstr->empty() | this._regrex = this._searchstr->escape('|') | endif
+    this._searchstr = '' # reset searchstr, so we not fuzzy search on this
+    this._input_list = []
     Timer.new("Line").Start(this)
   enddef
   def Run()
-    this._input_list = matchbufline(winbufnr(0), '\S.*', 1, '$') 
+    this._input_list = matchbufline(winbufnr(0), this._regrex, 1, '$') 
     this.SetText()
+    setbufvar(this._bufnr, '&filetype', &filetype)
   enddef
 endclass
 
@@ -527,7 +533,7 @@ export class Explorer extends AbstractFuzzy
   enddef
   def DeleteF()
     inputsave()
-    var c = input($"Are sure to delete: {this.GetSelected()} ? (y/N)")
+    var c = input($"Are sure to delete: {this.GetSelected()} ? (y/N) ")
     if (c ==# "y")
       this.GetSelected()->delete("rf")
       echo $"{this.GetSelected()} is now deleted"
