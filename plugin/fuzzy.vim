@@ -3,7 +3,7 @@ vim9script
 if exists("g:loaded_fuzzy") | finish | endif
 g:loaded_fuzzy = 1
 
-import autoload "Fuzzy.vim"
+import autoload "fuzzy.vim" as Fuzzy
 
 
 com! FuzzyMRU Fuzzy.MRU.Instance.Search() 

@@ -138,16 +138,14 @@ abstract class AbstractFuzzy
   def SetText()
     this._has_matched = !this._input_list->empty() # has_matched is based on originial list
     if this._matched_list[0]->empty() 
-      if this._searchstr->empty() # searchstr is now back to empty, gotta pull original list, considering we have all the matches
+      if this._searchstr->empty()
         this._matched_list = [this._input_list] 
-        this._has_matched = true
       else # matchfuzzypos() return empty matched_list for a ligit searchstr
         this._matched_list = [[{ 'text': this._searchstr }]]
         this._has_matched = false
       endif
     endif
 
-    # just display number of lines popup can show
     var popup_display_list = this._matched_list[0]
     if (this._matched_list->len() > 1 && !this._matched_list[1]->empty())
       popup_display_list = popup_display_list->mapnew((i, t) => {
@@ -189,19 +187,13 @@ abstract class AbstractFuzzy
     this._has_matched = !this._input_list->empty()  # has_matched is based on originial list, should be called after Before() since it populate the _input_list
     this._matched_list = [this._input_list] # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
 
-    var winpos: list<number> = winnr()->win_screenpos()
-    var height: number = winheight(0) - 2
-    var width: number = winwidth(0)
     this._popup_id = popup_create(this._matched_list[0], this._popup_opts->extend({
-      line: winpos[0],
-      col: winpos[1] + width - 1,
       cursorline: 1,
-      pos: 'topright',
       wrap: 0,
-      minwidth: &columns - 4,
-      maxwidth: float2nr(&columns * 0.3),
-      maxheight: &lines - 2,
-      minheight: &lines - 2,
+      minwidth: float2nr(&columns * 0.6),
+      maxwidth: float2nr(&columns * 0.6),
+      maxheight: float2nr(&lines * 0.6),
+      minheight: float2nr(&lines * 0.6),
       filter: this.Filter,
     }))
     this._bufnr = winbufnr(this._popup_id)
@@ -258,7 +250,7 @@ abstract class AbstractFuzzy
     # by default get selected will return text
     return this.GetSelectedItem('text')
   enddef
-  def GetSelectedItem(key: string): string
+  def GetSelectedItem(key: string): any # there some more atttribute is passed along with items, like file size (number)
     if this._matched_list[0]->empty()
       return ''
     endif
@@ -486,6 +478,7 @@ endclass
 
 export class Explorer extends AbstractFuzzy
   public static final Instance: Explorer = Explorer.new()
+  var _usr_dir: string
   def new()
     this._mode_maps['insert']->insert({ 'keys': ["-"], 'cb': this.ParentDir})
     this._mode_maps['normal']->insert({ 'keys': ["d"], 'cb': this.DeleteF})
@@ -504,17 +497,20 @@ export class Explorer extends AbstractFuzzy
     endif
   enddef
   def Before()
-    this._input_list = getcompletion('.*\|*', 'file')->filter((_, v) => v !~ '\./')->mapnew((_, v) => ({'text': v})) 
+    this.PopulateInputList()
+    this._usr_dir = getcwd()
+  enddef
+  def PopulateInputList()
+    this._input_list = readdirex(getcwd())->map((_, v) => ( v->extend({'text': v.name}) ))
   enddef
   def SetStatus()
-    var fsel = this.GetSelected()
-    var status = fsel =~ '\./\|\.\./' ? '' :  getcwd()
-    if (fsel->filereadable() || fsel->isdirectory())
-      status = this.AddPadding(status, '|', fsel, '[', getfsize(fsel), strftime('%b %d %H:%M', getftime(fsel)), ']')
-    else
-      status = ' ' .. status .. ' '
-    endif
+    var fn = this.GetSelected()
+    if (fn->filereadable() || fn->isdirectory())
+      var status = this.AddPadding(getcwd(), '|', fn, '[', this.GetSelectedItem('size'), strftime('%b %d %H:%M', this.GetSelectedItem('time')), ']')
       popup_setoptions(this._popup_id, { "title": $'{status}'})
+    else
+      popup_setoptions(this._popup_id, { "title": $' {getcwd()} '})
+    endif
   enddef
   def ParentDir()
     this.ChangeDir("..")
@@ -550,15 +546,23 @@ export class Explorer extends AbstractFuzzy
     this.RelistDirectory()
   enddef
   def ChangeDir(dir: string)
-    win_execute(this._popup_id, $"cd {dir}")
-    this.RelistDirectory()
+    this._logger.Debug("ChangeDir() dir: " .. dir .. " selected: " .. this.GetSelected())
+    if (dir->isdirectory())
+      execute($"cd {dir}")
+      this.RelistDirectory()
+    endif
   enddef
   def RelistDirectory()
     this._searchstr = "" # clear out prompt search string, as we move to target dir
     this._matched_list = [[]] # reset matched list, so SetText() will reset matched_list to input_list
     this.ResetCursor()
-    this.Before() # update new input list
+    this.PopulateInputList() # update new input list
     this.SetText()
+  enddef
+  def Close()
+    this._logger.Debug("Close() roll back orginal pwd: " .. this._usr_dir)
+    execute($"cd  {this._usr_dir}")
+    super.Close()
   enddef
 endclass
 
@@ -598,9 +602,9 @@ abstract class AbstractVimFuzzy extends AbstractFuzzy
   def Before()
     this._user_wildoptions = &wildoptions
     execute("set wildoptions=fuzzy")
-    this.GetInitialInputList()
+    this.PopulateInputList()
   enddef
-  def GetInitialInputList()
+  def PopulateInputList()
     this._input_list = getcompletion('', this._type)->mapnew((_, v) => ({ 'text': v} ))
   enddef
   def _OnEnter()
@@ -633,8 +637,8 @@ export class Tag extends AbstractVimFuzzy
   def _OnEnter()
     execute(":tag " .. this.GetSelected())
   enddef
-  def GetInitialInputList()
+  def PopulateInputList()
     system($"cd {expand('%:p:h')} && exctags {expand('%:p:h')}")
-    super.GetInitialInputList()
+    super.PopulateInputList()
   enddef
 endclass
