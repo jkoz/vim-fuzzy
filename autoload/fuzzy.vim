@@ -97,9 +97,10 @@ abstract class AbstractFuzzy
       { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
       { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>", "\<C-k>"], 'cb': this.Up, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-n>", "\<Tab>", "\<Down>", "\<C-j>"], 'cb': this.Down, 'setstatus': this.SetStatus },
-      { 'keys': ["\<C-d>", "\<C-u>"], 'cb': this.NormalRegular, 'setstatus': this.SetStatus }, 
+      { 'keys': ["\<C-d>", "\<C-u>"], 'cb': this.NormalExecute, 'setstatus': this.SetStatus }, 
       { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
-      { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText}],
+      { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText}
+    ],
     'normal': [
       { 'keys': ["i"], 'cb': this.InsertMode},
       { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
@@ -107,7 +108,9 @@ abstract class AbstractFuzzy
       { 'keys': ["k"], 'cb': this.Up, 'setstatus': this.SetStatus },
       { 'keys': ["j"], 'cb': this.Down, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
-      { 'keys': [], 'cb': this.NormalRegular }] 
+      { 'keys': ["x"] }, # ignore delete key, so less confuse
+      { 'keys': [], 'cb': this.NormalExecute}
+    ] 
   }
   var _input_list: list<any>  # input list 
   var _matched_list: list<list<any>> # return by matchfuzzypos() 
@@ -240,7 +243,7 @@ abstract class AbstractFuzzy
     this.ResetCursor()
     this._searchstr = this._searchstr .. this._key
   enddef 
-  def NormalRegular(): void
+  def NormalExecute(): void
     win_execute(this._popup_id, $"norm! " .. this._key)
   enddef
   def Edit()
