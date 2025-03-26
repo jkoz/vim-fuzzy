@@ -140,7 +140,7 @@ abstract class AbstractFuzzy
   enddef
   def SetText()
     this._has_matched = !this._input_list->empty() # has_matched is based on originial list
-    if this._matched_list[0]->empty() 
+    if this._matched_list->empty() || this._matched_list[0]->empty() 
       if this._searchstr->empty()
         this._matched_list = [this._input_list] 
       else # matchfuzzypos() return empty matched_list for a ligit searchstr
@@ -149,14 +149,25 @@ abstract class AbstractFuzzy
       endif
     endif
 
-    var popup_display_list = this._matched_list[0]
-    if (this._matched_list->len() > 1 && !this._matched_list[1]->empty())
-      popup_display_list = popup_display_list->mapnew((i, t) => {
-        return { 'text': t.text, 'props': this._matched_list[1][i]->mapnew((j, k) => ({'col': k + 1, 'length': 1, 'type': 'FuzzyMatchCharacter' }))}
-      })
-    endif
-    popup_settext(this._popup_id, popup_display_list)
+    this._logger.Debug("SetText(): " .. this._matched_list[0]->string())
+    popup_settext(this._popup_id, this.CreateText())
     this.SetStatus()
+  enddef
+  def HasMatchedCharPos(): bool # got highlight intel for matched character
+    return this._matched_list->len() > 1 && !this._matched_list[1]->empty() 
+  enddef
+  def CreateText(): list<dict<any>>
+    if this.HasMatchedCharPos()
+      var pos = this._matched_list[1]
+      return this._matched_list[0]->mapnew((i, t) => ({
+        'text': t.text, 
+        'props': pos[i]->mapnew((j, k) => ({
+          'col': k + 1,
+          'length': 1,
+          'type': 'FuzzyMatchCharacter' }))}))
+    endif
+
+    return this._matched_list[0]
   enddef
   def AddPadding(...items: list<any>): string
     var rt = items->filter((_, v) => !v->empty())->reduce((f, l) => f .. ' ' .. l, '')
@@ -187,10 +198,7 @@ abstract class AbstractFuzzy
     this._mode = 'insert' # first start popup always insert mode
     this._searchstr = searchstr
     this.Before()  # subclass fuzzy to populate _input_list
-    this._has_matched = !this._input_list->empty()  # has_matched is based on originial list, should be called after Before() since it populate the _input_list
-    this._matched_list = [this._input_list] # results[0] will be set to _input_list as first run, matchfuzzypos() is not called yet
-
-    this._popup_id = popup_create(this._matched_list[0], this._popup_opts->extend({
+    this._popup_id = popup_create([], this._popup_opts->extend({
       cursorline: 1,
       wrap: 0,
       minwidth: float2nr(&columns * 0.6),
@@ -200,10 +208,10 @@ abstract class AbstractFuzzy
       filter: this.Filter,
     }))
     this._bufnr = winbufnr(this._popup_id)
+    this.SetText()
     this.After()
   enddef
   def After()
-    this.SetStatus()
   enddef
   def Filter(winid: number, key: string): bool
     this._key = key
@@ -499,12 +507,34 @@ export class Explorer extends AbstractFuzzy
       endif
     endif
   enddef
+  def CreateText(): list<dict<any>>
+    if this.HasMatchedCharPos()
+      return this._matched_list[0]->mapnew((i, t) => ({ 
+          'text': this.GetEntryText(t), 
+          'props': this._matched_list[1][i]->mapnew((j, k) => ({
+                'col': this.GetEntryStartPos(t) + k + 1,
+                'length': 1,
+                'type': 'FuzzyMatchCharacter' })
+          )}))
+    endif
+
+    return this._matched_list[0]->mapnew((_, t) => ({'text': this.GetEntryText(t)}))
+  enddef
+  def GetEntryText(entry: dict<any>): string
+    var pretext = entry->get('pretext', '')
+    return pretext->empty() ?  entry.text : pretext .. entry.text
+  enddef
+  def GetEntryStartPos(entry: dict<any>): number
+    var pretext = entry->get('pretext', '')
+    return pretext->empty() ?  0 : pretext->len()
+  enddef
   def Before()
     this.PopulateInputList()
     this._usr_dir = getcwd()
   enddef
   def PopulateInputList()
-    this._input_list = readdirex(getcwd())->map((_, v) => ( v->extend({'text': v.name}) ))
+    this._input_list = readdirex(getcwd())
+      ->map((_, v) => ( v->extend({'text': v.name, 'pretext': this.AddPadding(v.perm, v.user, v.group, v.size, strftime('%b %d %H:%M', v.time))}) ))
   enddef
   def SetStatus()
     var fn = this.GetSelected()
