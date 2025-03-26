@@ -228,6 +228,8 @@ abstract class AbstractFuzzy
   enddef
   def Close()
       popup_close(this._popup_id)
+      this._matched_list = []
+      this._searchstr = ""
   enddef
   def Enter()
     if (!this._matched_list[0]->empty())
