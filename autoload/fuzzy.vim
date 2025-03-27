@@ -149,7 +149,7 @@ abstract class AbstractFuzzy
       endif
     endif
 
-    this._logger.Debug("SetText(): " .. this._matched_list[0]->string())
+    # this._logger.Debug("SetText(): " .. this._matched_list[0]->string())
     popup_settext(this._popup_id, this.CreateText())
     this.SetStatus()
   enddef
@@ -212,6 +212,7 @@ abstract class AbstractFuzzy
     this.After()
   enddef
   def After()
+    this._logger.Debug("SetText() bufnr=" .. this._bufnr .. " filetype=" .. this._bufnr->getbufvar('&filetype'))
   enddef
   def Filter(winid: number, key: string): bool
     this._key = key
@@ -424,7 +425,8 @@ export class Line extends AbstractFuzzy
     this._input_list = matchbufline(winbufnr(0), this._regrex, 1, '$') 
   enddef
   def After()
-    setbufvar(this._bufnr, '&filetype', &filetype)
+    win_execute(this._popup_id, "set ft=" .. &filetype)
+    super.After()
   enddef
 endclass
 
@@ -514,41 +516,49 @@ export class Explorer extends AbstractFuzzy
       return this._matched_list[0]->mapnew((i, t) => ({ 
           'text': this.GetEntryText(t), 
           'props': this._matched_list[1][i]->mapnew((j, k) => ({
-                'col': this.GetEntryStartPos(t) + k + 1,
+                'col': t->get('pretext', '')->len() + k + 1,
                 'length': 1,
                 'type': 'FuzzyMatchCharacter' })
           )}))
     endif
-
     return this._matched_list[0]->mapnew((_, t) => ({'text': this.GetEntryText(t)}))
   enddef
   def GetEntryText(entry: dict<any>): string
-    var pretext = entry->get('pretext', '')
-    return pretext->empty() ?  entry.text : pretext .. entry.text
-  enddef
-  def GetEntryStartPos(entry: dict<any>): number
-    var pretext = entry->get('pretext', '')
-    return pretext->empty() ?  0 : pretext->len()
+    return entry->get('pretext', '') .. entry.text .. entry->get('posttext', '')
   enddef
   def Before()
     this.PopulateInputList()
     this._usr_dir = getcwd()
   enddef
+  def After()
+    win_execute(this._popup_id, "set ft=fuzzydir")
+    super.After()
+  enddef
   def PopulateInputList()
-    this._input_list = readdirex(getcwd())
-      ->map((_, v) => ( v->extend({'text': v.name, 'pretext': this.AddPadding(v.perm, v.user, v.group, v.size, strftime('%b %d %H:%M', v.time))}) ))
+    var [dir_info, user_w, group_w, size_w] = [readdirex(getcwd()), 0, 0, 0] 
+    dir_info->foreach((_, d) => {
+      user_w = d.user->len() > user_w ? d.user->len() : user_w
+      group_w = d.group->len() > group_w ? d.group->len() : group_w
+      d.size = d.size >= 1073741824 ? printf("%.1fG", d.size / 1073741824.0) :
+        d.size >= 10485760 ?  printf("%dM", d.size / 1048576) :
+        d.size >= 1048576 ? printf("%.1fM", d.size / 1048576.0) :
+        d.size >= 10240 ? printf("%dK", d.size / 1024) :
+        d.size >= 1024 ? printf("%.1fK", d.size / 1024.0) : d.size
+      size_w = d.size->len() > size_w ? d.size->len() : size_w
+    })
+    this._input_list = dir_info->map((_, v) => ( v->extend({
+      text: v.name, 
+      pretext: printf($"%s %-{user_w}s %-{group_w}s %{size_w}s %s ", (v.type == 'file' ? '-' : v.type[0]) .. (v.perm ?? '---------'), v.user, v.group, v.size, '%b %d %H:%M'->strftime(v.time)),
+      posttext: v.type == 'dir' ? '/' : ''
+    })))
   enddef
   def SetStatus()
-    var fn = this.GetSelected()
-    if (fn->filereadable() || fn->isdirectory())
-      var status = this.AddPadding(getcwd(), '|', fn, '[', this.GetSelectedItem('size'), strftime('%b %d %H:%M', this.GetSelectedItem('time')), ']')
-      popup_setoptions(this._popup_id, { "title": $'{status}'})
-    else
-      popup_setoptions(this._popup_id, { "title": $' {getcwd()} '})
-    endif
+    var [fn, cwd] = [this.GetSelected(), getcwd()]
+    var status = fn->filereadable() || fn->isdirectory() ? $' {(cwd == '/' ? '/' : cwd .. '/') .. fn} ' : $' {cwd} '
+    popup_setoptions(this._popup_id, { title: status})
   enddef
   def ParentDir()
-    this.ChangeDir("..")
+    this.ChangeDir('..')
   enddef
   def NewFile()
     inputsave()
@@ -606,7 +616,7 @@ export class Find extends ShellFuzzy
   def Before()
     super.Before()
     # ShellFuzzy store all args in _cmd, in this case it is just a file path 
-    var pat = this._cmd->empty() ? expand('%:p:h') : this._cmd
+    var pat = this._cmd->empty() ? getcwd() : this._cmd
     this._cmd = 'find ' .. pat .. ' -type f -not -path "*/\.git/*"'
   enddef
   def _OnEnter()
