@@ -32,8 +32,8 @@ nn on <cmd>FuzzyKeyMap<cr>
 nn oh <cmd>FuzzyHelp<cr>
 nn ok <cmd>FuzzyTag<cr>
 
-if !hlexists('FuzzyMatch')
-  hi FuzzyMatch term=inverse cterm=inverse ctermfg=64 ctermbg=0
+if !hlexists('PopupSelected')
+  hi def link PopupSelected  CursorLine
 endif
 if !hlexists('FuzzyMatchCharacter')
   hi FuzzyMatchCharacter ctermfg=136 cterm=underline 
@@ -45,8 +45,8 @@ if !hlexists('FuzzyBorderRunning')
   hi FuzzyBorderRunning ctermfg=136 cterm=none
 endif
 
-if empty(prop_type_get('FuzzyMatch'))
-  prop_type_add('FuzzyMatch', {highlight: "FuzzyMatch", override: true, priority: 999, combine: true})
+if empty(prop_type_get('PopupSelected'))
+  prop_type_add('PopupSelected', {highlight: "PopupSelected", override: true, priority: 999, combine: true})
 endif
 if empty(prop_type_get('FuzzyMatchCharacter'))
   prop_type_add('FuzzyMatchCharacter', {highlight: "FuzzyMatchCharacter", override: true, priority: 1000, combine: true})
