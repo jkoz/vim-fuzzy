@@ -18,6 +18,7 @@ com! FuzzyExplorer Fuzzy.Explorer.Instance.Search()
 com! FuzzyKeyMap Fuzzy.VimKeyMap.Instance.Search() 
 com! FuzzyHelp Fuzzy.Help.Instance.Search() 
 com! FuzzyTag Fuzzy.Tag.Instance.Search() 
+com! -nargs=* -complete=dir FuzzyGrep Fuzzy.Grep.Instance.Search(<q-args>) 
 
 nn os :FuzzyShell
 nn om <cmd>FuzzyMRU<cr>
@@ -31,6 +32,7 @@ nn oe <cmd>FuzzyExplorer<cr>
 nn on <cmd>FuzzyKeyMap<cr>
 nn oh <cmd>FuzzyHelp<cr>
 nn ok <cmd>FuzzyTag<cr>
+nn oi <cmd>FuzzyGrep<cr>
 
 if !hlexists('PopupSelected')
   hi def link PopupSelected  CursorLine

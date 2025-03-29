@@ -350,7 +350,7 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
 
     this._logger.Debug("Running command: " .. this._cmd)
 
-    this._poll_timer = Timer.new('Poll timer', 100, -1)
+    this._poll_timer = Timer.new('Poll timer', 200, -1)
     this._poll_timer.Start(this)
 
     popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderRunning'] })
@@ -422,7 +422,7 @@ export class Line extends AbstractFuzzy
     this._regrex = '.*' # reset regrex pat to match all every search
     if !this._searchstr->empty() | this._regrex = this._searchstr->escape('|') | endif
     this._searchstr = '' # reset searchstr, so we not fuzzy search on this
-    this._input_list = matchbufline(winbufnr(0), this._regrex, 1, '$') 
+    this._input_list = winbufnr(0)->matchbufline(this._regrex, 1, '$') 
   enddef
   def After()
     win_execute(this._popup_id, 'syntax clear')
@@ -624,6 +624,22 @@ export class Find extends ShellFuzzy
   enddef
   def _OnEnter()
     this.Edit()
+  enddef
+endclass
+
+export class Grep extends ShellFuzzy
+  public static final Instance: Grep = Grep.new()
+  def Before()
+    super.Before()
+    var pat = this._cmd->empty() ? getcwd() : this._cmd
+    this._cmd = 'grep -nr ' .. expand('<cword>') .. " " .. pat
+  enddef
+  def _OnEnter()
+    var sel = super.GetSelected()
+    if !sel->empty()
+      var ch = sel->split(':')
+      execute($"edit {ch[0]} | norm! {ch[1]}G")
+    endif
   enddef
 endclass
 
