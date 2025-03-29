@@ -79,7 +79,7 @@ abstract class AbstractFuzzy
   var _popup_opts = {
         mapping: 0, 
         filtermode: 'a',
-        highlight: '',
+        highlight: 'Normal',
         padding: [0, 1, 0, 1],
         border: [1, 1, 1, 1],
         borderhighlight: ['FuzzyBorderNormal'], 
@@ -425,6 +425,7 @@ export class Line extends AbstractFuzzy
     this._input_list = matchbufline(winbufnr(0), this._regrex, 1, '$') 
   enddef
   def After()
+    win_execute(this._popup_id, 'syntax clear')
     win_execute(this._popup_id, "set ft=" .. &filetype)
     super.After()
   enddef
@@ -548,7 +549,9 @@ export class Explorer extends AbstractFuzzy
     })
     this._input_list = dir_info->map((_, v) => ( v->extend({
       text: v.name, 
-      pretext: printf($"%s %-{user_w}s %-{group_w}s %{size_w}s %s ", (v.type == 'file' ? '-' : v.type[0]) .. (v.perm ?? '---------'), v.user, v.group, v.size, '%b %d %H:%M'->strftime(v.time)),
+      pretext: printf($"%s %-{user_w}s %-{group_w}s %{size_w}s %s ",
+                      (v.type == 'file' ? '-' : v.type[0]) .. (v.perm ?? '---------'),
+                      v.user, v.group, v.size, '%b %d %H:%M'->strftime(v.time)),
       posttext: v.type == 'dir' ? '/' : ''
     })))
   enddef
