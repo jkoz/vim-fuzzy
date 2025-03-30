@@ -158,16 +158,20 @@ abstract class AbstractFuzzy
   enddef
   def CreateText(): list<dict<any>>
     if this.HasMatchedCharPos()
-      var pos = this._matched_list[1]
-      return this._matched_list[0]->mapnew((i, t) => ({
-        'text': t.text, 
-        'props': pos[i]->mapnew((j, k) => ({
-          'col': k + 1,
-          'length': 1,
-          'type': 'FuzzyMatchCharacter' }))}))
+      return this._matched_list[0]->mapnew((i, t) => ({ 
+          'text': this.GetEntryText(t), 
+          'props': this._matched_list[1][i]->mapnew((j, k) => ({
+                'col': t->get('pretext', '')->len() + k + 1,
+                'length': 1,
+                'type': 'FuzzyMatchCharacter' })
+          )}))
     endif
-
-    return this._matched_list[0]
+    return this._matched_list[0]->mapnew((_, t) => ({'text': this.GetEntryText(t)}))
+  enddef
+  def GetEntryText(entry: dict<any>): string
+    # there is no wrap in entry.text because text should be set to what user
+    # will see, then realtext will hold additional infomation
+    return entry->get('pretext', '') .. entry.text .. entry->get('posttext', '')
   enddef
   def AddPadding(...items: list<any>): string
     var rt = items->filter((_, v) => !v->empty())->reduce((f, l) => f .. ' ' .. l, '')
@@ -384,9 +388,13 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
       this.SetText()
     endif
   enddef
-
+  def ParseEntry(msg: string): dict<any>
+    # realtext: orginal return from shell command
+    # text: matchfuzzypos() run on this
+    return { 'text': msg, 'realtext': msg }
+  enddef
   def Message(ch: channel, msg: string)
-    var message: dict<any> = { 'text': msg->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': msg }
+    var message: dict<any> = this.ParseEntry(msg)
     this._input_list->add(message)    
     this._buffer->add(message)
   enddef
@@ -406,9 +414,9 @@ export class MRU extends AbstractFuzzy
     return this.GetSelectedRealText()
   enddef
   def Before()
-    this._input_list = v:oldfiles->copy()->filter((_, v) => 
-        filereadable(fnamemodify(v, ":p")))->mapnew((_, v) => 
-          ({'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}))                                       
+    this._input_list = v:oldfiles
+      ->copy()->filter((_, v) => v->fnamemodify(":p")->filereadable())
+      ->mapnew((_, v) => ({'text': v->fnamemodify(":t"), 'realtext': v}))                                       
   enddef
 endclass
 
@@ -471,9 +479,9 @@ export class Buffer extends AbstractFuzzy
     return this.GetSelectedRealText()
   enddef
   def Before()
-    this._input_list = getcompletion('', 'buffer')->filter((_, v) => 
-      bufnr(v) != bufnr())->mapnew((_, v) =>
-        ({'text': v->substitute('.*\/\(.*\)$', '\1', ''), 'realtext': v}))
+    this._input_list = getcompletion('', 'buffer')
+      ->filter((_, v) => v->bufnr() != bufnr())
+      ->mapnew((_, v) => ({'text': v->fnamemodify(':t'), 'realtext': v}))
   enddef
 endclass
 
@@ -511,21 +519,6 @@ export class Explorer extends AbstractFuzzy
         this.ChangeDir(this.GetSelected())
       endif
     endif
-  enddef
-  def CreateText(): list<dict<any>>
-    if this.HasMatchedCharPos()
-      return this._matched_list[0]->mapnew((i, t) => ({ 
-          'text': this.GetEntryText(t), 
-          'props': this._matched_list[1][i]->mapnew((j, k) => ({
-                'col': t->get('pretext', '')->len() + k + 1,
-                'length': 1,
-                'type': 'FuzzyMatchCharacter' })
-          )}))
-    endif
-    return this._matched_list[0]->mapnew((_, t) => ({'text': this.GetEntryText(t)}))
-  enddef
-  def GetEntryText(entry: dict<any>): string
-    return entry->get('pretext', '') .. entry.text .. entry->get('posttext', '')
   enddef
   def Before()
     this.PopulateInputList()
@@ -625,6 +618,9 @@ export class Find extends ShellFuzzy
   def _OnEnter()
     this.Edit()
   enddef
+  def ParseEntry(msg: string): dict<any>
+    return { 'text': msg->fnamemodify(':t'), 'realtext': msg }
+  enddef
 endclass
 
 export class Grep extends ShellFuzzy
@@ -632,14 +628,28 @@ export class Grep extends ShellFuzzy
   def Before()
     super.Before()
     var pat = this._cmd->empty() ? getcwd() : this._cmd
-    this._cmd = 'grep -nr ' .. expand('<cword>') .. " " .. pat
+    this._cmd = 'grep -swnr ' .. expand('<cword>') .. " " .. pat
   enddef
   def _OnEnter()
-    var sel = super.GetSelected()
+    # pulling realtext from super which will contains full info as <filename:lnum:matched>
+    var sel = super.GetSelectedRealText()
     if !sel->empty()
       var ch = sel->split(':')
       execute($"edit {ch[0]} | norm! {ch[1]}G")
     endif
+  enddef
+  def After()
+    win_execute(this._popup_id, "set ft=fuzzygrep")
+    super.After()
+  enddef
+  def GetSelectedRealText(): string
+    # super.GetSelectedRealText() will store full grep info as <filename:lnum:matched>
+    # this.GetSelectedRealText() is what displayed in popup status, so only the full filename path
+    return super.GetSelectedRealText()->substitute('\(.\{-}\):\d\+:.\+', '\1', '')
+  enddef
+  # regex get file name for grep results is different with regular path <filename:lnum:matched>
+  def ParseEntry(msg: string): dict<any>
+    return { 'text': msg->substitute('\(.\{-}\)\(:\d\+:.\+\)', '\=submatch(1)->fnamemodify(":t") .. submatch(2)', ''), 'realtext': msg }
   enddef
 endclass
 
@@ -657,6 +667,9 @@ export class GitFile extends ShellFuzzy
   enddef
   def _OnEnter()
     this.Edit()
+  enddef
+  def ParseEntry(msg: string): dict<any>
+    return { 'text': msg->fnamemodify(':t'), 'realtext': msg }
   enddef
 endclass
 
@@ -704,5 +717,18 @@ export class Tag extends AbstractVimFuzzy
   def PopulateInputList()
     system($"cd {expand('%:p:h')} && exctags {expand('%:p:h')}")
     super.PopulateInputList()
+  enddef
+endclass
+export class Highlight extends AbstractFuzzy
+  public static final Instance: Highlight = Highlight.new()
+  def _OnEnter()
+    this.Edit()
+  enddef
+  def _GetHi(d: dict<any>, ...items: list<string>): string
+    return items->reduce((f, l) => f .. d->get(f, '') .. ' ' .. l .. d->get(l, ''))
+  enddef
+  def Before()
+    this._input_list = hlget()
+      ->mapnew((_, v) => ({text: $"xxx {v.name}{this._GetHi(v, 'cleared', 'linksto', 'guifg', 'guibg', 'gui', 'ctermfg', 'ctermbg', 'cterm', 'term')}", name: v.name }))
   enddef
 endclass
