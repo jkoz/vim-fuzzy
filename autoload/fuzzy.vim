@@ -109,6 +109,7 @@ abstract class AbstractFuzzy
       { 'keys': ["j"], 'cb': this.Down, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
       { 'keys': ["x"] }, # ignore delete key, so less confuse
+      { 'keys': ["t"], 'cb': this.TogglePretext, 'settext': this.SetText },
       { 'keys': [], 'cb': this.NormalExecute}
     ] 
   }
@@ -121,6 +122,7 @@ abstract class AbstractFuzzy
   var _searchstr: string
   var _key: string # user input key
   var _mode: string
+  var _toggle_pretext: bool = false
 
   def NormalMode()
     this._mode = 'normal'
@@ -171,7 +173,7 @@ abstract class AbstractFuzzy
   def GetEntryText(entry: dict<any>): string
     # there is no wrap in entry.text because text should be set to what user
     # will see, then realtext will hold additional infomation
-    return entry->get('pretext', '') .. entry.text .. entry->get('posttext', '')
+    return (this._toggle_pretext ? entry->get('pretext', '') : '' ) .. entry.text .. entry->get('posttext', '')
   enddef
   def AddPadding(...items: list<any>): string
     var rt = items->filter((_, v) => !v->empty())->reduce((f, l) => f .. ' ' .. l, '')
@@ -260,6 +262,9 @@ abstract class AbstractFuzzy
   enddef 
   def NormalExecute(): void
     win_execute(this._popup_id, $"norm! " .. this._key)
+  enddef
+  def TogglePretext()
+    this._toggle_pretext = !this._toggle_pretext
   enddef
   def Edit()
     execute($"edit {this.GetSelected()}")
@@ -721,14 +726,26 @@ export class Tag extends AbstractVimFuzzy
 endclass
 export class Highlight extends AbstractFuzzy
   public static final Instance: Highlight = Highlight.new()
+  var _props = ['linksto', 'term', 'cterm', 'ctermfg', 'ctermbg']
   def _OnEnter()
     this.Edit()
   enddef
-  def _GetHi(d: dict<any>, ...items: list<string>): string
-    return items->reduce((f, l) => f .. d->get(f, '') .. ' ' .. l .. d->get(l, ''))
+  def ParseHighlighProp(dt: dict<any>, s: string): string
+    if (!dt->has_key(s)) | return '' | endif
+    var k = dt->get(s)
+    if (type(k) == type('')) | return $' {s}={k}'| endif
+    if (type(k) == type({})) | return $' {s}={k->keys()->join(",")}'| endif
+    return ''
   enddef
   def Before()
-    this._input_list = hlget()
-      ->mapnew((_, v) => ({text: $"xxx {v.name}{this._GetHi(v, 'cleared', 'linksto', 'guifg', 'guibg', 'gui', 'ctermfg', 'ctermbg', 'cterm', 'term')}", name: v.name }))
+    this._input_list = hlget()->mapnew((_, v) => ({
+      text: $"xxx {v.name}{this._props->mapnew((_, k) => this.ParseHighlighProp(v, k))->reduce((f, l) => f .. l)}",
+      name: v.name }))
+  enddef
+  def After()
+    win_execute(this._popup_id, this._input_list
+      ->mapnew((_, v) => $'syn match {v.name} "^xxx\ze {v.name}\>"')
+      ->add($'syn match ModeMsg "\sctermbg\|ctermfg\|cterm\|term\="')
+      ->reduce((f, l) => f .. "|" .. l))
   enddef
 endclass
