@@ -87,14 +87,20 @@ abstract class AbstractFuzzy
         borderchars: ['─', '│', '─', '│', '┌', '┐', '┘', '└'],
       }
   
+  var _action_maps: dict<any> = {
+    "\<CR>": "edit",
+    "\<C-t>": "tabnew",
+    "\<C-x>": "split",
+    "\<C-v>": "vsplit"
+  }
   var _mode_maps:  dict<list<dict<any>>> = { 
     'insert': [
       { 'keys': ["\<ScrollWheelLeft>", "\<ScrollWheelRight>"]},
       { 'keys': ["\<PageUp>", "\<PageDown>"]},
       { 'keys': ["\<ScrollWheelUp>", "\<ScrollWheelDown>"]},
       { 'keys': [";"], 'cb': this.NormalMode},
-      { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
-      { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
+      { 'keys': ["\<CR>", "\<C-m>", "\<C-t>", "\<C-x>", "\<C-v>"], 'cb': this.Enter },
+      { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Close},
       { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>", "\<C-k>"], 'cb': this.Up, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-n>", "\<Tab>", "\<Down>", "\<C-j>"], 'cb': this.Down, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-d>", "\<C-u>"], 'cb': this.NormalExecute, 'setstatus': this.SetStatus }, 
@@ -103,8 +109,8 @@ abstract class AbstractFuzzy
     ],
     'normal': [
       { 'keys': ["i"], 'cb': this.InsertMode},
-      { 'keys': ["\<CR>", "\<C-m>"], 'cb': this.Enter },
-      { 'keys': ["q", "\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Cancel },
+      { 'keys': ["\<CR>", "\<C-m>", "\<C-t>", "\<C-x>", "\<C-v>"], 'cb': this.Enter },
+      { 'keys': ["q", "\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Close},
       { 'keys': ["k"], 'cb': this.Up, 'setstatus': this.SetStatus },
       { 'keys': ["j"], 'cb': this.Down, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
@@ -163,7 +169,7 @@ abstract class AbstractFuzzy
       return this._matched_list[0]->mapnew((i, t) => ({ 
           'text': this.GetEntryText(t), 
           'props': this._matched_list[1][i]->mapnew((j, k) => ({
-                'col': t->get('pretext', '')->len() + k + 1,
+                'col': this.GetPretext(t)->len() + k + 1,
                 'length': 1,
                 'type': 'FuzzyMatchCharacter' })
           )}))
@@ -173,7 +179,10 @@ abstract class AbstractFuzzy
   def GetEntryText(entry: dict<any>): string
     # there is no wrap in entry.text because text should be set to what user
     # will see, then realtext will hold additional infomation
-    return (this._toggle_pretext ? entry->get('pretext', '') : '' ) .. entry.text .. entry->get('posttext', '')
+    return this.GetPretext(entry) .. entry.text .. entry->get('posttext', '')
+  enddef
+  def GetPretext(entry: dict<any>): string
+    return this._toggle_pretext ? entry->get('pretext', '') : '' 
   enddef
   def AddPadding(...items: list<any>): string
     var rt = items->filter((_, v) => !v->empty())->reduce((f, l) => f .. ' ' .. l, '')
@@ -244,9 +253,6 @@ abstract class AbstractFuzzy
       this.Close() # close popup
     endif
   enddef
-  def Cancel()
-    this.Close()
-  enddef
   def Up(): void
     win_execute(this._popup_id, $"norm! k")
   enddef
@@ -267,7 +273,10 @@ abstract class AbstractFuzzy
     this._toggle_pretext = !this._toggle_pretext
   enddef
   def Edit()
-    execute($"edit {this.GetSelected()}")
+    this.Exec(this.GetSelected())
+  enddef
+  def Exec(cmd: string)
+    execute($"{this._action_maps->get(this._key)} {cmd}")
   enddef
   def GetSelected(): string
     # by default get selected will return text
@@ -640,7 +649,7 @@ export class Grep extends ShellFuzzy
     var sel = super.GetSelectedRealText()
     if !sel->empty()
       var ch = sel->split(':')
-      execute($"edit {ch[0]} | norm! {ch[1]}G")
+      this.Exec($"{ch[0]} | norm! {ch[1]}G")
     endif
   enddef
   def After()
