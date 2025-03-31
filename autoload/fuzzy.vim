@@ -751,7 +751,8 @@ export class Highlight extends AbstractFuzzy
       text: $"xxx {v.name}{this._props->mapnew((_, k) => this.ParseHighlighProp(v, k))->reduce((f, l) => f .. l)}",
       name: v.name }))
   enddef
-  def After()
-    this._input_list->foreach((i, v) => (matchaddpos(v.name, [[i + 1, 1, 3]], 101, -1,  {window: this._popup_id})))
+  def SetStatus()
+    super.SetStatus()
+    this._matched_list[0]->foreach((i, v) => (matchaddpos(v.name, [[i + 1, 1, 3]], 101, -1,  {window: this._popup_id})))
   enddef
 endclass
