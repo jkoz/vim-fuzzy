@@ -743,9 +743,6 @@ export class Highlight extends AbstractFuzzy
       name: v.name }))
   enddef
   def After()
-    win_execute(this._popup_id, this._input_list
-      ->mapnew((_, v) => $'syn match {v.name} "^xxx\ze {v.name}\>"')
-      ->add($'syn match ModeMsg "\sctermbg\|ctermfg\|cterm\|term\="')
-      ->reduce((f, l) => f .. "|" .. l))
+    this._input_list->foreach((i, v) => (matchaddpos(v.name, [[i + 1, 1, 3]], 101, -1,  {window: this._popup_id})))
   enddef
 endclass
