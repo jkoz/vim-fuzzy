@@ -26,7 +26,7 @@ syn match Explorer_SizeMod '[KMG]' contained
 hi def link Explorer_SizeMod vimCommentString
 
 syn match Explorer_Time '\a\+\s\d\{2}\s\d\{2}:\d\{2}'
-hi def link Explorer_Time Underlined
+hi def link Explorer_Time Statement
 syn match Explorer_Directory '\(^\|\s\)[\/].\{-}\ze\($\| ->\)'
 hi def link Explorer_Directory Directory
 syn match Explorer_Link '-> .*'
