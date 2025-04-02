@@ -99,7 +99,7 @@ abstract class AbstractFuzzy
       { 'keys': ["\<PageUp>", "\<PageDown>"]},
       { 'keys': ["\<ScrollWheelUp>", "\<ScrollWheelDown>"]},
       { 'keys': [";"], 'cb': this.NormalMode},
-      { 'keys': ["\<CR>", "\<C-m>", "\<C-t>", "\<C-x>", "\<C-v>"], 'cb': this.Enter },
+      { 'keys': ["\<CR>", "\<C-m>", "\<C-t>", "\<C-x>", "\<C-v>"], 'cb': this.Accept },
       { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Close},
       { 'keys': ["\<C-p>", "\<S-Tab>", "\<Up>", "\<C-k>"], 'cb': this.Up, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-n>", "\<Tab>", "\<Down>", "\<C-j>"], 'cb': this.Down, 'setstatus': this.SetStatus },
@@ -109,7 +109,7 @@ abstract class AbstractFuzzy
     ],
     'normal': [
       { 'keys': ["i"], 'cb': this.InsertMode},
-      { 'keys': ["\<CR>", "\<C-m>", "\<C-t>", "\<C-x>", "\<C-v>"], 'cb': this.Enter },
+      { 'keys': ["\<CR>", "\<C-m>", "\<C-t>", "\<C-x>", "\<C-v>"], 'cb': this.Accept },
       { 'keys': ["q", "\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Close},
       { 'keys': ["k"], 'cb': this.Up, 'setstatus': this.SetStatus },
       { 'keys': ["j"], 'cb': this.Down, 'setstatus': this.SetStatus },
@@ -182,7 +182,7 @@ abstract class AbstractFuzzy
     return this.GetPretext(entry) .. entry.text .. entry->get('posttext', '')
   enddef
   def GetPretext(entry: dict<any>): string
-    return this._toggle_pretext ? entry->get('pretext', '') : '' 
+    return this._toggle_pretext ? entry->get('pretext', '') : ''
   enddef
   def AddPadding(...items: list<any>): string
     var rt = items->filter((_, v) => !v->empty())->reduce((f, l) => f .. ' ' .. l, '')
@@ -247,7 +247,7 @@ abstract class AbstractFuzzy
       this._matched_list = []
       this._searchstr = ""
   enddef
-  def Enter()
+  def Accept()
     if (!this._matched_list[0]->empty())
       this._OnEnter()
       this.Close() # close popup
@@ -336,7 +336,6 @@ abstract class AbstractCachedFuzzy extends AbstractFuzzy
 endclass
 
 export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, MessageHandler
-  public static final Instance: ShellFuzzy = ShellFuzzy.new()
   var _job: Job
   var _poll_timer: Timer 
   var _buffer: list<any>
@@ -420,7 +419,6 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
 endclass
 
 export class MRU extends AbstractFuzzy
-  public static final Instance: MRU = MRU.new()
   def _OnEnter()
     this.Edit()
   enddef
@@ -435,7 +433,6 @@ export class MRU extends AbstractFuzzy
 endclass
 
 export class Line extends AbstractFuzzy
-  public static final Instance: Line = Line.new()
   var _regrex: string = '.*' # roll back to .* only to keep the format, \S.* will remove file format
   def _OnEnter()
     this.Jump()
@@ -454,7 +451,6 @@ export class Line extends AbstractFuzzy
 endclass
 
 export class CmdHistory extends AbstractFuzzy implements Runnable
-  public static final Instance: CmdHistory = CmdHistory.new()
   def Before()
     Timer.new("CmdHistory").Start(this)
   enddef
@@ -471,7 +467,6 @@ export class CmdHistory extends AbstractFuzzy implements Runnable
 endclass
 
 export class Cmd extends AbstractFuzzy implements Runnable
-  public static final Instance: Cmd = Cmd.new()
   def Before()
     Timer.new("Cmd").Start(this)
   enddef
@@ -485,7 +480,6 @@ export class Cmd extends AbstractFuzzy implements Runnable
 endclass
 
 export class Buffer extends AbstractFuzzy
-  public static final Instance: Buffer = Buffer.new()
   def _OnEnter()
     this.Edit()
   enddef
@@ -500,8 +494,6 @@ export class Buffer extends AbstractFuzzy
 endclass
 
 export class VimKeyMap extends AbstractFuzzy implements Runnable
-  public static final Instance: VimKeyMap = VimKeyMap.new()
-
   def Before()
     Timer.new("KeyMap").Start(this)
   enddef
@@ -515,7 +507,6 @@ export class VimKeyMap extends AbstractFuzzy implements Runnable
 endclass
 
 export class Explorer extends AbstractFuzzy
-  public static final Instance: Explorer = Explorer.new()
   var _usr_dir: string
   def new()
     this._mode_maps['insert']->insert({ 'keys': ["-"], 'cb': this.ParentDir})
@@ -524,7 +515,7 @@ export class Explorer extends AbstractFuzzy
     this._mode_maps['normal']->insert({ 'keys': ["n"], 'cb': this.NewFile})
     this._mode_maps['normal']->insert({ 'keys': ["-"], 'cb': this.ParentDir})
   enddef
-  def Enter()
+  def Accept()
     if (!this._matched_list[0]->empty())
       if (this.GetSelected()->filereadable())
         this.Edit()
@@ -622,7 +613,6 @@ export class Explorer extends AbstractFuzzy
 endclass
 
 export class Find extends ShellFuzzy
-  public static final Instance: Find = Find.new()
   def Before()
     super.Before()
     # ShellFuzzy store all args in _cmd, in this case it is just a file path 
@@ -638,7 +628,6 @@ export class Find extends ShellFuzzy
 endclass
 
 export class Grep extends ShellFuzzy
-  public static final Instance: Grep = Grep.new()
   def Before()
     super.Before()
     var pat = this._cmd->empty() ? getcwd() : this._cmd
@@ -668,7 +657,6 @@ export class Grep extends ShellFuzzy
 endclass
 
 export class GitFile extends ShellFuzzy
-  public static final Instance: GitFile = GitFile.new()
   var _file_pwd: string
 
   def Before()
@@ -712,7 +700,6 @@ abstract class AbstractVimFuzzy extends AbstractFuzzy
 endclass
 
 export class Help extends AbstractVimFuzzy
-  public static final Instance: Help = Help.new()
   def new()
     this._type = 'help'
   enddef
@@ -721,7 +708,6 @@ export class Help extends AbstractVimFuzzy
   enddef
 endclass
 export class Tag extends AbstractVimFuzzy
-  public static final Instance: Tag = Tag.new()
   def new()
     this._type = 'tag'
   enddef
@@ -734,10 +720,8 @@ export class Tag extends AbstractVimFuzzy
   enddef
 endclass
 export class Highlight extends AbstractFuzzy
-  public static final Instance: Highlight = Highlight.new()
   var _props = ['linksto', 'term', 'cterm', 'ctermfg', 'ctermbg']
   def _OnEnter()
-    this.Edit()
   enddef
   def ParseHighlighProp(dt: dict<any>, s: string): string
     if (!dt->has_key(s)) | return '' | endif

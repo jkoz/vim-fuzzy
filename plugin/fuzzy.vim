@@ -5,21 +5,37 @@ g:loaded_fuzzy = 1
 
 import autoload "fuzzy.vim" as Fuzzy
 
+g:fuzzy_commands = {
+  'MRU': Fuzzy.MRU.new(),
+  'CmdHistory': Fuzzy.CmdHistory.new(),
+  'Cmd': Fuzzy.Cmd.new(),
+  'Buffer': Fuzzy.Buffer.new(),
+  'GitFile': Fuzzy.GitFile.new(),
+  'Explorer': Fuzzy.Explorer.new(),
+  'KeyMap': Fuzzy.VimKeyMap.new(),
+  'Help': Fuzzy.Help.new(),
+  'Tag': Fuzzy.Tag.new(),
+  'Highlight': Fuzzy.Highlight.new(),
+  'Line': Fuzzy.Line.new(),
+  'Grep': Fuzzy.Grep.new(),
+  'Find': Fuzzy.Find.new(),
+  'Shell': Fuzzy.ShellFuzzy.new(),
+}
 
-com! FuzzyMRU Fuzzy.MRU.Instance.Search() 
-com! -nargs=* FuzzyLine Fuzzy.Line.Instance.Search(<q-args>) 
-com! -nargs=* -complete=dir FuzzyFind Fuzzy.Find.Instance.Search(<q-args>) 
-com! -nargs=* -complete=dir FuzzyShell Fuzzy.ShellFuzzy.Instance.Search(<q-args>) 
-com! FuzzyCmdHistory Fuzzy.CmdHistory.Instance.Search() 
-com! FuzzyCmd Fuzzy.Cmd.Instance.Search() 
-com! FuzzyBuffer Fuzzy.Buffer.Instance.Search() 
-com! FuzzyGitFile Fuzzy.GitFile.Instance.Search() 
-com! FuzzyExplorer Fuzzy.Explorer.Instance.Search() 
-com! FuzzyKeyMap Fuzzy.VimKeyMap.Instance.Search() 
-com! FuzzyHelp Fuzzy.Help.Instance.Search() 
-com! FuzzyTag Fuzzy.Tag.Instance.Search() 
-com! -nargs=* -complete=dir FuzzyGrep Fuzzy.Grep.Instance.Search(<q-args>) 
-com! FuzzyHighlight Fuzzy.Highlight.Instance.Search() 
+com! FuzzyMRU g:fuzzy_commands.MRU.Search() 
+com! FuzzyCmdHistory g:fuzzy_commands.CmdHistory.Search() 
+com! FuzzyCmd g:fuzzy_commands.Cmd.Search() 
+com! FuzzyBuffer g:fuzzy_commands.Buffer.Search() 
+com! FuzzyGitFile g:fuzzy_commands.GitFile.Search() 
+com! FuzzyExplorer g:fuzzy_commands.Explorer.Search() 
+com! FuzzyKeyMap g:fuzzy_commands.KeyMap.Search() 
+com! FuzzyHelp g:fuzzy_commands.Help.Search() 
+com! FuzzyTag g:fuzzy_commands.Tag.Search() 
+com! FuzzyHighlight g:fuzzy_commands.Highlight.Search() 
+com! -nargs=* FuzzyLine g:fuzzy_commands.Line.Search(<q-args>) 
+com! -nargs=* -complete=dir FuzzyGrep g:fuzzy_commands.Grep.Search(<q-args>) 
+com! -nargs=* -complete=dir FuzzyFind g:fuzzy_commands.Find.Search(<q-args>) 
+com! -nargs=* -complete=dir FuzzyShell g:fuzzy_commands.Shell.Search(<q-args>) 
 
 nn os :FuzzyShell
 nn om <cmd>FuzzyMRU<cr>
