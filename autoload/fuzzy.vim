@@ -273,7 +273,8 @@ abstract class AbstractFuzzy
     this._toggle_pretext = !this._toggle_pretext
   enddef
   def Edit()
-    this.Exec(this.GetSelected())
+    var sel = this.GetSelected()
+    sel->empty() ?? this.Exec(sel)
   enddef
   def Exec(cmd: string)
     execute($"{this._action_maps->get(this._key)} {cmd}")
