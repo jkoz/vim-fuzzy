@@ -114,9 +114,10 @@ abstract class AbstractFuzzy
       { 'keys': ["k"], 'cb': this.Up, 'setstatus': this.SetStatus },
       { 'keys': ["j"], 'cb': this.Down, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
-      { 'keys': ['x', 's', 'r'], cb: this.Ignore}, # ignore delete key, so less confuse
+      { 'keys': ['x', 's'], cb: this.Ignore}, # ignore delete key, so less confuse
       { 'keys': ['o'], cb: this.Preview}, # ignore delete key, so less confuse
-      { 'keys': ["t"], 'cb': this.TogglePretext, 'settext': this.SetText },
+      { 'keys': ['t'], 'cb': this.TogglePretext, 'settext': this.SetText },
+      { 'keys': ['r'], 'cb': this.ToggleRealtext, 'settext': this.SetText },
       { 'keys': [], 'cb': this.NormalExecute}
     ] 
   }
@@ -129,23 +130,33 @@ abstract class AbstractFuzzy
   var _searchstr: string
   var _key: string # user input key
   var _mode: string
-  var _toggle_pretext: bool = false
-  var _toggle_preview: bool = false
+  var _toggles = { pretext: false, posttext: false, preview: false, realtext: false }
 
   def Ignore()
   enddef
 
   def Preview()
-    win_execute(this._popup_id, 'syntax clear')
-    this._toggle_preview = !this._toggle_preview
-    if this._toggle_preview
-      popup_settext(this._popup_id, this.GetSelectedRealText()->glob()->readfile())
-      win_execute(this._popup_id, 'silent! doautocmd filetypedetect BufNewFile ' .. this.GetSelectedRealText()->glob())
+    this._toggles.preview = !this._toggles.preview
+    if this._toggles.preview
+      var fn = this.GetSelectedRealText()->glob()
+      if (fn->filereadable()) 
+        popup_settext(this._popup_id, fn->readfile())
+        win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {fn}')
+      endif
     else
+      win_execute(this._popup_id, 'syntax clear')
       this.SetText()
     endif
   enddef
-
+  def TogglePretext()
+    this._toggles.pretext = !this._toggles.pretext
+  enddef
+  def TogglePosttext()
+    this._toggles.posttext = !this._toggles.posttext
+  enddef
+  def ToggleRealtext()
+    this._toggles.realtext = !this._toggles.realtext
+  enddef
   def NormalMode()
     this._mode = 'normal'
     echo "[Normal]"
@@ -199,10 +210,10 @@ abstract class AbstractFuzzy
   enddef
   def GetPostText(entry: dict<any>): string
     # realtext give more detail information of the entry like real path
-    return entry->get('posttext', '') .. " " .. entry->get('realtext', '')
+    return (this._toggles.posttext ? entry->get('posttext', '') : '') .. (this._toggles.realtext ? " " .. entry->get('realtext', '') : '')
   enddef
   def GetPretext(entry: dict<any>): string
-    return this._toggle_pretext ? entry->get('pretext', '') : ''
+    return this._toggles.pretext ? entry->get('pretext', '') : ''
   enddef
   def AddPadding(...items: list<any>): string
     var rt = items->filter((_, v) => !v->empty())->reduce((f, l) => f .. ' ' .. l, '')
@@ -212,7 +223,6 @@ abstract class AbstractFuzzy
     return this._has_matched ? this._matched_list[0]->len()->string() : ''
   enddef
   def SetStatus()
-   # if this._toggle_pretext | return | endif
     popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(this.GetMatchedNumberStr())}' })
   enddef
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
@@ -289,9 +299,6 @@ abstract class AbstractFuzzy
   enddef 
   def NormalExecute(): void
     win_execute(this._popup_id, $"norm! " .. this._key)
-  enddef
-  def TogglePretext()
-    this._toggle_pretext = !this._toggle_pretext
   enddef
   def Edit()
     var sel = this.GetSelected()
@@ -534,6 +541,8 @@ export class Explorer extends AbstractFuzzy
     this._mode_maps['normal']->insert({ 'keys': ["r"], 'cb': this.RenameF})
     this._mode_maps['normal']->insert({ 'keys': ["n"], 'cb': this.NewFile})
     this._mode_maps['normal']->insert({ 'keys': ["-"], 'cb': this.ParentDir})
+    this._toggles.posttext = true # for display extra information of file, like dir, link, etc.
+    this._toggles.realtext = false # dont show full path, however it is used for preview
   enddef
   def Accept()
     if (!this._matched_list[0]->empty())
@@ -567,6 +576,7 @@ export class Explorer extends AbstractFuzzy
     })
     this._input_list = dir_info->map((_, v) => ( v->extend({
       text: v.name, 
+      realtext: getcwd() .. '/' .. v.name, # Preview() need full path
       pretext: printf($"%s %-{user_w}s %-{group_w}s %{size_w}s %s ",
                       (v.type == 'file' ? '-' : v.type[0]) .. (v.perm ?? '---------'),
                       v.user, v.group, v.size, '%b %d %H:%M'->strftime(v.time)),
