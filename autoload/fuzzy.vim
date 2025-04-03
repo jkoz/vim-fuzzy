@@ -1,7 +1,7 @@
 vim9script
 
 class Logger
-  var _debug: bool = true
+  var _debug: bool = false
   def new()
     ch_logfile('/tmp/vim-fuzzy.log', 'w')
   enddef
@@ -114,7 +114,8 @@ abstract class AbstractFuzzy
       { 'keys': ["k"], 'cb': this.Up, 'setstatus': this.SetStatus },
       { 'keys': ["j"], 'cb': this.Down, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
-      { 'keys': ['x', 'o'], cb: this.Ignore}, # ignore delete key, so less confuse
+      { 'keys': ['x', 's', 'r'], cb: this.Ignore}, # ignore delete key, so less confuse
+      { 'keys': ['o'], cb: this.Preview}, # ignore delete key, so less confuse
       { 'keys': ["t"], 'cb': this.TogglePretext, 'settext': this.SetText },
       { 'keys': [], 'cb': this.NormalExecute}
     ] 
@@ -129,8 +130,20 @@ abstract class AbstractFuzzy
   var _key: string # user input key
   var _mode: string
   var _toggle_pretext: bool = false
+  var _toggle_preview: bool = false
 
   def Ignore()
+  enddef
+
+  def Preview()
+    win_execute(this._popup_id, 'syntax clear')
+    this._toggle_preview = !this._toggle_preview
+    if this._toggle_preview
+      popup_settext(this._popup_id, this.GetSelectedRealText()->glob()->readfile())
+      win_execute(this._popup_id, 'silent! doautocmd filetypedetect BufNewFile ' .. this.GetSelectedRealText()->glob())
+    else
+      this.SetText()
+    endif
   enddef
 
   def NormalMode()
@@ -165,21 +178,28 @@ abstract class AbstractFuzzy
     return this._matched_list->len() > 1 && !this._matched_list[1]->empty() 
   enddef
   def CreateText(): list<dict<any>>
-    if this.HasMatchedCharPos()
-      return this._matched_list[0]->mapnew((i, t) => ({ 
-          'text': this.GetEntryText(t), 
-          'props': this._matched_list[1][i]->mapnew((j, k) => ({
-                'col': this.GetPretext(t)->len() + k + 1,
-                'length': 1,
-                'type': 'FuzzyMatchCharacter' })
-          )}))
-    endif
-    return this._matched_list[0]->mapnew((_, t) => ({'text': this.GetEntryText(t)}))
+    return this._matched_list[0]->mapnew((i, t) => this.CreateEntry(i, t))
   enddef
-  def GetEntryText(entry: dict<any>): string
-    # there is no wrap in entry.text because text should be set to what user
-    # will see, then realtext will hold additional infomation
-    return this.GetPretext(entry) .. entry.text .. entry->get('posttext', '')
+  def CreateEntry(i: number, entry: dict<any>): dict<any>
+    var [pretext, text, posttext] = [this.GetPretext(entry), entry.text, this.GetPostText(entry)]
+    var [pretextl, textl, posttextl] = [pretext->len(), text->len(), posttext->len()]
+    return { 
+      text: pretext .. text .. posttext, 
+      props: this.CreateTextMatchPosProp(i, pretext) + this.CreatePostTextProp(pretext, text, posttext)
+    }
+  enddef
+  def CreateTextMatchPosProp(i: number, pretext: string): list<any>
+    if this._matched_list->len() > 1 && !this._matched_list[1]->empty() 
+      return this._matched_list[1][i]->mapnew((_, k) => ({ col: pretext->len() + k + 1, length: 1, type: 'FuzzyMatchCharacter' }))
+    endif
+    return []
+  enddef
+  def CreatePostTextProp(pretext: string, text: string, posttext: string): list<any>
+    return [{ col: pretext->len() + text->len() + 1, length: posttext->len(), type: 'FuzzyPostText'}]
+  enddef
+  def GetPostText(entry: dict<any>): string
+    # realtext give more detail information of the entry like real path
+    return entry->get('posttext', '') .. " " .. entry->get('realtext', '')
   enddef
   def GetPretext(entry: dict<any>): string
     return this._toggle_pretext ? entry->get('pretext', '') : ''
@@ -192,7 +212,8 @@ abstract class AbstractFuzzy
     return this._has_matched ? this._matched_list[0]->len()->string() : ''
   enddef
   def SetStatus()
-    popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(this.GetSelectedRealText(), this.GetMatchedNumberStr())}' })
+   # if this._toggle_pretext | return | endif
+    popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(this.GetMatchedNumberStr())}' })
   enddef
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
     var b = reltime()
@@ -245,7 +266,7 @@ abstract class AbstractFuzzy
   def Close()
       popup_close(this._popup_id)
       this._matched_list = []
-      this._searchstr = ""
+      # this._searchstr = ""
   enddef
   def Accept()
     if (!this._matched_list[0]->empty())
@@ -263,6 +284,7 @@ abstract class AbstractFuzzy
     this._searchstr = this._searchstr->substitute(".$", "", "")
   enddef
   def Regular(): void
+    win_execute(this._popup_id, $"norm! gg")
     this._searchstr = this._searchstr .. this._key
   enddef 
   def NormalExecute(): void
@@ -286,16 +308,15 @@ abstract class AbstractFuzzy
     if this._matched_list[0]->empty()
       return ''
     endif
-    if this._matched_list[0]->len() <= this.GetSelectedId()
-    endif
     return this._matched_list[0][this.GetSelectedId()]->get(key, '')
   enddef
   def GetSelectedRealText(): string
     return this.GetSelectedItem('realtext')
   enddef
   def Jump()
-    if (!this._matched_list[0]->empty())
-      execute($"exec 'normal m`' | :{this._matched_list[0][this.GetSelectedId()].lnum} | norm zz")
+    var lnum = this.GetSelectedItem('lnum')
+    if (lnum->type() == type(0))
+      execute($"exec 'normal m`' | :{lnum} | norm zz")
     endif
   enddef
   def Execute()

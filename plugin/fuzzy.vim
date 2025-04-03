@@ -50,20 +50,14 @@ nn on <cmd>FuzzyKeyMap<cr>
 nn oh <cmd>FuzzyHelp<cr>
 nn ok <cmd>FuzzyTag<cr>
 nn oi <cmd>FuzzyGrep<cr>
-nn o] <cmd>FuzzyHighlight<cr>
+nn oa <cmd>FuzzyHighlight<cr>
 
-if !hlexists('PopupSelected')
-  hi def link PopupSelected  CursorLine
-endif
-if !hlexists('FuzzyMatchCharacter')
-  hi FuzzyMatchCharacter ctermfg=136 cterm=underline 
-endif
-if !hlexists('FuzzyBorderNormal')
-  hi FuzzyBorderNormal ctermfg=4 cterm=none
-endif
-if !hlexists('FuzzyBorderRunning')
-  hi FuzzyBorderRunning ctermfg=136 cterm=none
-endif
+if !hlexists('PopupSelected') | hi def link PopupSelected  CursorLine | endif
+if !hlexists('FuzzyMatchCharacter') | hi FuzzyMatchCharacter ctermfg=136 cterm=underline | endif
+if !hlexists('FuzzyBorderNormal') | hi FuzzyBorderNormal ctermfg=4 cterm=none | endif
+if !hlexists('FuzzyBorderRunning') | hi FuzzyBorderRunning ctermfg=136 cterm=none | endif
+if !hlexists('FuzzyBorderRunning') | hi FuzzyBorderRunning ctermfg=136 cterm=none | endif
+if !hlexists('FuzzyPostText') | hi FuzzyPostText ctermfg=11 cterm=none | endif
 
 if empty(prop_type_get('PopupSelected'))
   prop_type_add('PopupSelected', {highlight: "PopupSelected", override: true, priority: 999, combine: true})
@@ -73,5 +67,8 @@ if empty(prop_type_get('FuzzyMatchCharacter'))
 endif
 if empty(prop_type_get('FuzzyBorderRunning'))
   prop_type_add('FuzzyBorderRunning', {highlight: "FuzzyBorderRunning", override: true, priority: 1000, combine: true})
+endif
+if empty(prop_type_get('FuzzyPostText'))
+  prop_type_add('FuzzyPostText', {highlight: "FuzzyPostText", override: true, priority: 1000, combine: true})
 endif
 
