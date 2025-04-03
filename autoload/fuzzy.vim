@@ -95,9 +95,9 @@ abstract class AbstractFuzzy
   }
   var _mode_maps:  dict<list<dict<any>>> = { 
     'insert': [
-      { 'keys': ["\<ScrollWheelLeft>", "\<ScrollWheelRight>"]},
-      { 'keys': ["\<PageUp>", "\<PageDown>"]},
-      { 'keys': ["\<ScrollWheelUp>", "\<ScrollWheelDown>"]},
+      { 'keys': ["\<ScrollWheelLeft>", "\<ScrollWheelRight>"], cb: this.Ignore },
+      { 'keys': ["\<PageUp>", "\<PageDown>"], cb: this.Ignore },
+      { 'keys': ["\<ScrollWheelUp>", "\<ScrollWheelDown>"], cb: this.Ignore },
       { 'keys': [";"], 'cb': this.NormalMode},
       { 'keys': ["\<CR>", "\<C-m>", "\<C-t>", "\<C-x>", "\<C-v>"], 'cb': this.Accept },
       { 'keys': ["\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Close},
@@ -114,7 +114,7 @@ abstract class AbstractFuzzy
       { 'keys': ["k"], 'cb': this.Up, 'setstatus': this.SetStatus },
       { 'keys': ["j"], 'cb': this.Down, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
-      { 'keys': ["x"] }, # ignore delete key, so less confuse
+      { 'keys': ['x', 'o'], cb: this.Ignore}, # ignore delete key, so less confuse
       { 'keys': ["t"], 'cb': this.TogglePretext, 'settext': this.SetText },
       { 'keys': [], 'cb': this.NormalExecute}
     ] 
@@ -130,6 +130,9 @@ abstract class AbstractFuzzy
   var _mode: string
   var _toggle_pretext: bool = false
 
+  def Ignore()
+  enddef
+
   def NormalMode()
     this._mode = 'normal'
     echo "[Normal]"
@@ -139,9 +142,6 @@ abstract class AbstractFuzzy
     this._mode = 'insert'
     echo "[Insert]"
     this.SetText()
-  enddef
-  def ResetCursor()
-    win_execute(this._popup_id, "norm! gg")
   enddef
   def GetSelectedId(): number
     return line('.', this._popup_id) - 1
@@ -233,7 +233,7 @@ abstract class AbstractFuzzy
     this._key = key
     for item in this._mode_maps[this._mode]
       if (item.keys->empty() || item.keys->index(key) > -1)
-        if item->has_key('cb') | item.cb() | else |  return false | endif # if cb is not present, key will be ignored
+        if item->has_key('cb') | item.cb() | endif # if cb is not present, key will be ignored
         if item->has_key('match') | item.match() | endif
         if item->has_key('settext') | item.settext() | endif
         if item->has_key('setstatus') | item.setstatus() | endif
@@ -263,7 +263,6 @@ abstract class AbstractFuzzy
     this._searchstr = this._searchstr->substitute(".$", "", "")
   enddef
   def Regular(): void
-    this.ResetCursor()
     this._searchstr = this._searchstr .. this._key
   enddef 
   def NormalExecute(): void
@@ -288,7 +287,6 @@ abstract class AbstractFuzzy
       return ''
     endif
     if this._matched_list[0]->len() <= this.GetSelectedId()
-      this.ResetCursor()
     endif
     return this._matched_list[0][this.GetSelectedId()]->get(key, '')
   enddef
@@ -602,7 +600,6 @@ export class Explorer extends AbstractFuzzy
   def RelistDirectory()
     this._searchstr = "" # clear out prompt search string, as we move to target dir
     this._matched_list = [[]] # reset matched list, so SetText() will reset matched_list to input_list
-    this.ResetCursor()
     this.PopulateInputList() # update new input list
     this.SetText()
   enddef
