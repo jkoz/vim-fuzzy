@@ -114,7 +114,7 @@ abstract class AbstractFuzzy
       { 'keys': ["k"], 'cb': this.Up, 'setstatus': this.SetStatus },
       { 'keys': ["j"], 'cb': this.Down, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
-      { 'keys': ['x', 's'], cb: this.Ignore}, # ignore delete key, so less confuse
+      { 'keys': ['x', 's', 'p'], cb: this.Ignore}, # ignore delete key, so less confuse
       { 'keys': ['o'], cb: this.Preview}, # ignore delete key, so less confuse
       { 'keys': ['t'], 'cb': this.TogglePretext, 'settext': this.SetText },
       { 'keys': ['r'], 'cb': this.ToggleRealtext, 'settext': this.SetText },
@@ -131,6 +131,8 @@ abstract class AbstractFuzzy
   var _key: string # user input key
   var _mode: string
   var _toggles = { pretext: false, posttext: false, preview: false, realtext: false }
+  var _filetype = ''
+  var _name = ''
 
   def Ignore()
   enddef
@@ -138,14 +140,17 @@ abstract class AbstractFuzzy
   def Preview()
     this._toggles.preview = !this._toggles.preview
     if this._toggles.preview
-      var fn = this.GetSelectedRealText()->glob()
-      if (fn->filereadable()) 
-        popup_settext(this._popup_id, fn->readfile())
-        win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {fn}')
-      endif
+      this._DoPreview()
     else
-      win_execute(this._popup_id, 'syntax clear')
+      win_execute(this._popup_id, $"set ft={this._filetype} | norm! '`")
       this.SetText()
+    endif
+  enddef
+  def _DoPreview()
+    var fn = this.GetSelectedRealText()->glob()
+    if (fn->filereadable()) 
+      popup_settext(this._popup_id, fn->readfile())
+      win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {fn} | norm m`')
     endif
   enddef
   def TogglePretext()
@@ -223,7 +228,9 @@ abstract class AbstractFuzzy
     return this._has_matched ? this._matched_list[0]->len()->string() : ''
   enddef
   def SetStatus()
-    popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(this.GetMatchedNumberStr())}' })
+    if !this._toggles.preview # don't set title when it in preview mode, since filename won't change
+      popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(this._name, this.GetSelectedRealText(), this.GetMatchedNumberStr())}' })
+    endif
   enddef
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
     var b = reltime()
@@ -258,6 +265,7 @@ abstract class AbstractFuzzy
     this.After()
   enddef
   def After()
+    win_execute(this._popup_id, $"set ft={this._filetype}")
     this._logger.Debug("SetText() bufnr=" .. this._bufnr .. " filetype=" .. this._bufnr->getbufvar('&filetype'))
   enddef
   def Filter(winid: number, key: string): bool
@@ -368,7 +376,6 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
   var _buffer: list<any>
   var _cmd: string # external commands, grep, find, etc.
   var _error_msg: list<string>
-
   def _OnEnter()
     this.PrintOnly()
   enddef
@@ -446,6 +453,9 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
 endclass
 
 export class MRU extends AbstractFuzzy
+  def new()
+    this._name = "Mru"
+  enddef
   def _OnEnter()
     this.Edit()
   enddef
@@ -461,6 +471,9 @@ endclass
 
 export class Line extends AbstractFuzzy
   var _regrex: string = '.*' # roll back to .* only to keep the format, \S.* will remove file format
+  def new()
+    this._name = 'Line'
+  enddef
   def _OnEnter()
     this.Jump()
   enddef
@@ -469,15 +482,14 @@ export class Line extends AbstractFuzzy
     if !this._searchstr->empty() | this._regrex = this._searchstr->escape('|') | endif
     this._searchstr = '' # reset searchstr, so we not fuzzy search on this
     this._input_list = winbufnr(0)->matchbufline(this._regrex, 1, '$') 
-  enddef
-  def After()
-    win_execute(this._popup_id, 'syntax clear')
-    win_execute(this._popup_id, "set ft=" .. &filetype)
-    super.After()
+    this._filetype = &filetype
   enddef
 endclass
 
 export class CmdHistory extends AbstractFuzzy implements Runnable
+  def new()
+    this._name = 'Command History'
+  enddef
   def Before()
     Timer.new("CmdHistory").Start(this)
   enddef
@@ -494,6 +506,9 @@ export class CmdHistory extends AbstractFuzzy implements Runnable
 endclass
 
 export class Cmd extends AbstractFuzzy implements Runnable
+  def new()
+    this._name = 'Command'
+  enddef
   def Before()
     Timer.new("Cmd").Start(this)
   enddef
@@ -507,6 +522,9 @@ export class Cmd extends AbstractFuzzy implements Runnable
 endclass
 
 export class Buffer extends AbstractFuzzy
+  def new()
+    this._name = 'Buf'
+  enddef
   def _OnEnter()
     this.Edit()
   enddef
@@ -521,6 +539,9 @@ export class Buffer extends AbstractFuzzy
 endclass
 
 export class VimKeyMap extends AbstractFuzzy implements Runnable
+  def new()
+    this._name = 'Keymap'
+  enddef
   def Before()
     Timer.new("KeyMap").Start(this)
   enddef
@@ -543,6 +564,7 @@ export class Explorer extends AbstractFuzzy
     this._mode_maps['normal']->insert({ 'keys': ["-"], 'cb': this.ParentDir})
     this._toggles.posttext = true # for display extra information of file, like dir, link, etc.
     this._toggles.realtext = false # dont show full path, however it is used for preview
+    this._filetype = "fuzzydir"
   enddef
   def Accept()
     if (!this._matched_list[0]->empty())
@@ -557,10 +579,6 @@ export class Explorer extends AbstractFuzzy
   def Before()
     this.PopulateInputList()
     this._usr_dir = getcwd()
-  enddef
-  def After()
-    win_execute(this._popup_id, "set ft=fuzzydir")
-    super.After()
   enddef
   def PopulateInputList()
     var [dir_info, user_w, group_w, size_w] = [readdirex(getcwd()), 0, 0, 0] 
@@ -642,6 +660,9 @@ export class Explorer extends AbstractFuzzy
 endclass
 
 export class Find extends ShellFuzzy
+  def new()
+    this._name = 'Find'
+  enddef
   def Before()
     super.Before()
     # ShellFuzzy store all args in _cmd, in this case it is just a file path 
@@ -657,6 +678,10 @@ export class Find extends ShellFuzzy
 endclass
 
 export class Grep extends ShellFuzzy
+  def new()
+    this._filetype = 'fuzzygrep'
+    this._name = 'Grep'
+  enddef
   def Before()
     super.Before()
     var pat = this._cmd->empty() ? getcwd() : this._cmd
@@ -670,9 +695,16 @@ export class Grep extends ShellFuzzy
       this.Exec($"{ch[0]} | norm! {ch[1]}G")
     endif
   enddef
-  def After()
-    win_execute(this._popup_id, "set ft=fuzzygrep")
-    super.After()
+  def _DoPreview()
+    # pulling realtext from super which will contains full info as <filename:lnum:matched>
+    var sel = super.GetSelectedRealText()
+    if !sel->empty()
+      var ch = sel->split(':')
+      popup_settext(this._popup_id, ch[0]->readfile())
+      win_execute(this._popup_id, $"norm! {ch[1]}G")
+      # execute($"exec 'normal m`' | :{lnum} | norm zz")
+      win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {ch[0]}')
+    endif
   enddef
   def GetSelectedRealText(): string
     # super.GetSelectedRealText() will store full grep info as <filename:lnum:matched>
@@ -687,7 +719,9 @@ endclass
 
 export class GitFile extends ShellFuzzy
   var _file_pwd: string
-
+  def new()
+    this._name = 'GitFile'
+  enddef
   def Before()
     super.Before()
     this._file_pwd = expand('%:p:h')
@@ -731,6 +765,7 @@ endclass
 export class Help extends AbstractVimFuzzy
   def new()
     this._type = 'help'
+    this._name = 'Help'
   enddef
   def _OnEnter()
     execute(":help " .. this.GetSelected())
@@ -739,6 +774,7 @@ endclass
 export class Tag extends AbstractVimFuzzy
   def new()
     this._type = 'tag'
+    this._name = 'Tag'
   enddef
   def _OnEnter()
     execute(":tag " .. this.GetSelected())
@@ -750,6 +786,9 @@ export class Tag extends AbstractVimFuzzy
 endclass
 export class Highlight extends AbstractFuzzy
   var _props = ['linksto', 'term', 'cterm', 'ctermfg', 'ctermbg']
+  def new()
+    this._name = 'Highlight'
+  enddef
   def _OnEnter()
   enddef
   def ParseHighlighProp(dt: dict<any>, s: string): string
