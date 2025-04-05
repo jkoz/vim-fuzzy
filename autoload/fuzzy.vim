@@ -142,6 +142,7 @@ abstract class AbstractFuzzy
     if this._toggles.preview
       this._DoPreview()
     else
+      clearmatches(this._popup_id)
       win_execute(this._popup_id, $"set ft={this._filetype} | norm! '`")
       this.SetText()
     endif
@@ -149,8 +150,9 @@ abstract class AbstractFuzzy
   def _DoPreview()
     var fn = this.GetSelectedRealText()->glob()
     if (fn->filereadable()) 
+      win_execute(this._popup_id, $"norm! m`")
       popup_settext(this._popup_id, fn->readfile())
-      win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {fn} | norm m`')
+      win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {fn}')
     endif
   enddef
   def TogglePretext()
@@ -678,6 +680,7 @@ export class Find extends ShellFuzzy
 endclass
 
 export class Grep extends ShellFuzzy
+  var _pattern: string
   def new()
     this._filetype = 'fuzzygrep'
     this._name = 'Grep'
@@ -685,7 +688,8 @@ export class Grep extends ShellFuzzy
   def Before()
     super.Before()
     var pat = this._cmd->empty() ? getcwd() : this._cmd
-    this._cmd = 'grep -swnr ' .. expand('<cword>') .. " " .. pat
+    this._pattern = expand('<cword>')
+    this._cmd = 'grep -swnr ' .. this._pattern .. " " .. pat
   enddef
   def _OnEnter()
     # pulling realtext from super which will contains full info as <filename:lnum:matched>
@@ -700,10 +704,12 @@ export class Grep extends ShellFuzzy
     var sel = super.GetSelectedRealText()
     if !sel->empty()
       var ch = sel->split(':')
-      popup_settext(this._popup_id, ch[0]->readfile())
-      win_execute(this._popup_id, $"norm! {ch[1]}G")
-      # execute($"exec 'normal m`' | :{lnum} | norm zz")
-      win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {ch[0]}')
+      win_execute(this._popup_id, $"norm! m`") # marked location of current selection in popup
+      popup_settext(this._popup_id, ch[0]->readfile()) # load selected file into popup
+      var col = getbufline(this._bufnr, ch[1]->str2nr())[0]->stridx(this._pattern) + 1 # find start column of the match
+      matchaddpos("FuzzyGrepMatch", [[ch[1]->str2nr(), col, this._pattern->len()]], 101, -1,  {window: this._popup_id}) # add highlight for the match word
+      win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {ch[0]} | norm! {ch[1]}G') # go to that location
+      win_execute(this._popup_id, 'norm! zz') # center the screen
     endif
   enddef
   def GetSelectedRealText(): string
