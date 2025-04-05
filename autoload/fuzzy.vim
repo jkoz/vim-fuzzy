@@ -831,7 +831,7 @@ export class QuickFix extends AbstractFuzzy
   def new()
     this._filetype = 'fuzzygrep'
     this._name = 'QuickFix'
-    this._toggles.posttext = true # for display extra information lnum, error
+    this._toggles.pretext = true # for display extra information lnum, error
   enddef
   def Before()
     var qflist = getqflist()
@@ -841,8 +841,8 @@ export class QuickFix extends AbstractFuzzy
       col: v.col,
       lnum: v.lnum,
       end_lnum: v.end_lnum,
-      text: $"{v.bufnr->bufname()->fnamemodify(':t')}",
-      posttext: $":{v.lnum}:{v.text}" 
+      pretext: $"{v.bufnr->bufname()->fnamemodify(':t')}:{v.lnum}:",
+      text: $"{v.text}" 
     }))
   enddef
   def _OnEnter()
