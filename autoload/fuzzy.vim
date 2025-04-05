@@ -119,7 +119,13 @@ abstract class AbstractFuzzy
       { 'keys': ['t'], 'cb': this.TogglePretext, 'settext': this.SetText },
       { 'keys': ['r'], 'cb': this.ToggleRealtext, 'settext': this.SetText },
       { 'keys': [], 'cb': this.NormalExecute}
-    ] 
+    ], 
+    'preview': [
+      { 'keys': ['o'], cb: this.Preview }, # ignore delete key, so less confuse
+      { 'keys': ["\<CR>", "\<C-m>", "\<C-t>", "\<C-x>", "\<C-v>"], 'cb': this.Ignore},
+      { 'keys': ["q", "\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Close},
+      { 'keys': [], 'cb': this.NormalExecute}
+    ]
   }
   var _input_list: list<any>  # input list 
   var _matched_list: list<list<any>> # return by matchfuzzypos() 
@@ -137,11 +143,14 @@ abstract class AbstractFuzzy
   def Ignore()
   enddef
 
+# TODO: not all command can preview! try o with command fuzzy
   def Preview()
     this._toggles.preview = !this._toggles.preview
     if this._toggles.preview
+      this.SetMode('preview')
       this._DoPreview()
     else
+      this.SetMode('normal')
       clearmatches(this._popup_id)
       win_execute(this._popup_id, $"set ft={this._filetype} | norm! '`")
       this.SetText()
@@ -164,14 +173,15 @@ abstract class AbstractFuzzy
   def ToggleRealtext()
     this._toggles.realtext = !this._toggles.realtext
   enddef
-  def NormalMode()
-    this._mode = 'normal'
-    echo "[Normal]"
+  def SetMode(str: string)
+    this._mode = str
+    echo str
   enddef
-
+  def NormalMode()
+    this.SetMode('normal')
+  enddef
   def InsertMode()
-    this._mode = 'insert'
-    echo "[Insert]"
+    this.SetMode('insert')
     this.SetText()
   enddef
   def GetSelectedId(): number
@@ -403,7 +413,7 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
 
     this._logger.Debug("Running command: " .. this._cmd)
 
-    this._poll_timer = Timer.new('Poll timer', 200, -1)
+    this._poll_timer = Timer.new('Poll timer', 50, -1)
     this._poll_timer.Start(this)
 
     popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderRunning'] })
@@ -719,6 +729,7 @@ export class Grep extends ShellFuzzy
   enddef
   # regex get file name for grep results is different with regular path <filename:lnum:matched>
   def ParseEntry(msg: string): dict<any>
+    # currently fuzzy search the whole line of return from grep except for path
     return { 'text': msg->substitute('\(.\{-}\)\(:\d\+:.\+\)', '\=submatch(1)->fnamemodify(":t") .. submatch(2)', ''), 'realtext': msg }
   enddef
 endclass
@@ -813,6 +824,40 @@ export class Highlight extends AbstractFuzzy
     super.SetText()
     if this._has_matched 
       this._matched_list[0]->foreach((i, v) => (matchaddpos(v.name, [[i + 1, 1, 3]], 101, -1,  {window: this._popup_id})))
+    endif
+  enddef
+endclass
+export class QuickFix extends AbstractFuzzy
+  def new()
+    this._filetype = 'fuzzygrep'
+    this._name = 'QuickFix'
+    this._toggles.posttext = true # for display extra information lnum, error
+  enddef
+  def Before()
+    var qflist = getqflist()
+    if qflist->empty() | echo 'Quick fix empty' | return | endif
+    this._input_list = qflist->mapnew((_, v) => ({
+      realtext: v.bufnr->bufname(),
+      col: v.col,
+      lnum: v.lnum,
+      end_lnum: v.end_lnum,
+      text: $"{v.bufnr->bufname()->fnamemodify(':t')}",
+      posttext: $":{v.lnum}:{v.text}" 
+    }))
+  enddef
+  def _OnEnter()
+    execute($':cc! {line('.', this._popup_id)}')
+  enddef
+  def _DoPreview()
+    # pulling realtext from super which will contains full info as <filename:lnum:matched>
+    var sel = super.GetSelectedRealText()
+    if !sel->empty()
+      win_execute(this._popup_id, $"norm! m`") # marked location of current selection in popup
+      popup_settext(this._popup_id, sel->readfile()) # load selected file into popup
+      var [lnum, end_lnum, col] = [this.GetSelectedItem('lnum'), this.GetSelectedItem('end_lnum'), this.GetSelectedItem('col')]
+      matchaddpos("FuzzyGrepMatch", [[lnum, col, end_lnum]], 101, -1,  {window: this._popup_id}) # add highlight for the match word
+      win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {sel} | norm! {lnum}G') # go to that location
+      win_execute(this._popup_id, 'norm! zz') # center the screen
     endif
   enddef
 endclass
