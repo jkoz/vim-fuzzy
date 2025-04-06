@@ -108,6 +108,7 @@ abstract class AbstractFuzzy
       { 'keys': ["\<C-n>", "\<Tab>", "\<Down>", "\<C-j>"], 'cb': this.Down, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-d>", "\<C-u>"], 'cb': this.NormalExecute, 'setstatus': this.SetStatus }, 
       { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
+      { 'keys': ["\<C-o>"], cb: this.Preview}, # ignore delete key, so less confuse
       { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText}
     ],
     'normal': [
@@ -123,7 +124,7 @@ abstract class AbstractFuzzy
       { 'keys': [], 'cb': this.NormalExecute}
     ], 
     'preview': [
-      { 'keys': ['o'], cb: this.Preview }, # ignore delete key, so less confuse
+      { 'keys': ['o', "\<C-o>"], cb: this.Preview }, # ignore delete key, so less confuse
       { 'keys': ["\<CR>", "\<C-m>", "\<C-t>", "\<C-x>", "\<C-v>"], 'cb': this.Ignore},
       { 'keys': ["q", "\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Close},
       { 'keys': [], 'cb': this.NormalExecute}
@@ -138,6 +139,7 @@ abstract class AbstractFuzzy
   var _searchstr: string
   var _key: string # user input key
   var _mode: string
+  var _pres_mode: string
   var _toggles = { pretext: false, posttext: false, preview: false}
   var _filetype = ''
   var _name = ''
@@ -149,10 +151,11 @@ abstract class AbstractFuzzy
   def Preview()
     this._toggles.preview = !this._toggles.preview
     if this._toggles.preview
+      this._pres_mode = this._mode
       this.SetMode('preview')
       this._DoPreview()
     else
-      this.SetMode('normal')
+      this.SetMode(this._pres_mode)
       clearmatches(this._popup_id)
       win_execute(this._popup_id, $"set ft={this._filetype} | norm! '`")
       this.SetText()
@@ -226,7 +229,7 @@ abstract class AbstractFuzzy
     return this._toggles.posttext ? [{ col: pretext->len() + text->len() + 1, length: posttext->len(), type: 'FuzzyPostText'}] : []
   enddef
   def CreatePreTextProp(pretext: string, text: string, posttext: string): list<any>
-    return this._toggles.pretext ? [{ col: 1, length: pretext->len(), type: 'FuzzyPostText'}] : []
+    return this._toggles.pretext && pretext->len() > 0 ? [{ col: 1, length: pretext->len(), type: 'FuzzyPostText'}] : []
   enddef
   def GetPostText(entry: dict<any>): string
     # realtext give more detail information of the entry like real path  .. (this._toggles.realtext ? " " .. entry->get('realtext', '') : '')
@@ -273,7 +276,7 @@ abstract class AbstractFuzzy
   enddef
   
   def Search(searchstr: string = "")
-    this._mode = 'insert' # first start popup always insert mode
+    this.SetMode('insert') # first start popup always insert mode
     this._searchstr = searchstr
     this.Before()  # subclass fuzzy to populate _input_list
     this._popup_id = popup_create([], this._popup_opts->extend({
