@@ -1,17 +1,20 @@
 vim9script
 
-class Logger
-  var _debug: bool = false
+export class Logger
+  var _debug: bool = true
   def new()
     ch_logfile('/tmp/vim-fuzzy.log', 'w')
   enddef
   def Debug(str: string)
     if this._debug | ch_log("vim-fuzzy.vim [Debug] " .. str) | endif 
   enddef
-  def DebugList(msgs: list<any>)
-    if this._debug | msgs->foreach((_, v) => ch_log("vim-fuzzy.vim [Debug] " .. v->string())) | endif
-  enddef
 endclass
+
+export def Debug(str: string)
+  if exists("g:fuzzy_logger")
+    g:fuzzy_logger.Debug(str)
+  endif
+enddef
 
 interface MessageHandler
   def Message(ch: channel, msg: string)
@@ -26,7 +29,13 @@ class Job
     this._handler = s
   enddef
   def Start(cmd: string)
-    this._job = job_start(cmd, {out_cb: this._handler.Message, err_cb: this._handler.Error, exit_cb: this._handler.Exit})
+    this._job = job_start(cmd, {out_cb: this.Message, err_cb: this._handler.Error, exit_cb: this.Exit})
+  enddef
+  def Message(ch: channel, msg: string)
+    this._handler.Message(ch, msg)
+  enddef
+  def Exit(ch: job, status: number)
+    this._handler.Exit(ch, status)
   enddef
   def IsDead(): bool
     return job_status(this._job) ==# 'dead'
@@ -38,22 +47,19 @@ interface Runnable
 endinterface
 
 class Timer
-  var _delay: number = 0
   var _runnable: Runnable
   var _name: string
-  var _options: dict<any>
   var _timerId: number = 0
-  def new(name: string, delay: number = 0, repeat: number = 0)
-    this._delay = delay
+  def new(name: string)
     this._name = name
-    this._options = { 'repeat': repeat }
   enddef
-  def Start(runnable: Runnable)
+  def Start(runnable: Runnable, delay: number = 0, repeat: number = 0)
     try
       this._runnable = runnable
-      this._timerId = timer_start(this._delay, this._HandleTimer, this._options)
+      Debug($'[{this._name}] timer started delay={delay}, repeat={repeat}')
+      this._timerId = timer_start(delay, this._HandleTimer, { 'repeat': repeat })
     catch
-      echom 'Error from ' .. this._name .. ': ' .. v:exception->string()
+      Debug($'[{this._name}] timer error! delay={delay}, repeat={repeat}')
     endtry
   enddef
   def _HandleTimer(timerId: number)
@@ -69,13 +75,12 @@ class Timer
     try
       Cb(items)
     catch
-      this._logger.Debug('_TimerCB()' .. this._name .. ': ' .. v:exception)
+      Debug('_TimerCB()' .. this._name .. ': ' .. v:exception)
     endtry
   enddef
 endclass
 
 abstract class AbstractFuzzy
-  var _logger: Logger = Logger.new()
   var _popup_opts = {
         mapping: 0, 
         filtermode: 'a',
@@ -198,15 +203,16 @@ abstract class AbstractFuzzy
       endif
     endif
 
-    # this._logger.Debug("SetText(): " .. this._matched_list[0]->string())
+    var b = reltime()
     popup_settext(this._popup_id, this.CreateText())
     this.SetStatus()
+    Debug("SetText() on " .. &lines .. " records. Took " .. b->reltime()->reltimefloat() * 1000)
   enddef
   def HasMatchedCharPos(): bool # got highlight intel for matched character
     return this._matched_list->len() > 1 && !this._matched_list[1]->empty() 
   enddef
   def CreateText(): list<dict<any>>
-    return this._matched_list[0]->mapnew((i, t) => this.CreateEntry(i, t))
+    return this._matched_list[0]->slice(0, &lines)->mapnew((i, t) => this.CreateEntry(i, t))
   enddef
   def CreateEntry(i: number, entry: dict<any>): dict<any>
     var [pretext, text, posttext] = [this.GetPretext(entry), entry.text, this.GetPostText(entry)]
@@ -247,7 +253,7 @@ abstract class AbstractFuzzy
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
     var b = reltime()
     var ret = items->matchfuzzypos(ss, {'key': 'text'})
-    this._logger.Debug("Matching [" .. ss .. "] on " .. items->len() .. " records. " .. ret[1]->len() .. " matched! Took " .. b->reltime()->reltimefloat() * 1000)
+    Debug("Matching [" .. ss .. "] on " .. items->len() .. " records. " .. ret[1]->len() .. " matched! Took " .. b->reltime()->reltimefloat() * 1000)
     return ret
   enddef
 
@@ -278,7 +284,7 @@ abstract class AbstractFuzzy
   enddef
   def After()
     win_execute(this._popup_id, $"set ft={this._filetype}")
-    this._logger.Debug("SetText() bufnr=" .. this._bufnr .. " filetype=" .. this._bufnr->getbufvar('&filetype'))
+    Debug("SetText() bufnr=" .. this._bufnr .. " filetype=" .. this._bufnr->getbufvar('&filetype'))
   enddef
   def Filter(winid: number, key: string): bool
     this._key = key
@@ -366,6 +372,7 @@ abstract class AbstractCachedFuzzy extends AbstractFuzzy
   enddef
 
   def Match()
+    if this._searchstr->empty() && this._key->empty()| return | endif
     var previous_matched_list = this._cached_list->get(this._searchstr, [])
     if (previous_matched_list->empty())
       this._matched_list = this.MatchFuzzyPos(this._searchstr, this._input_list)
@@ -384,10 +391,10 @@ endclass
 
 export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, MessageHandler
   var _job: Job
-  var _poll_timer: Timer 
-  var _buffer: list<any>
+  var _last_len: number = 0
   var _cmd: string # external commands, grep, find, etc.
-  var _error_msg: list<string>
+  var _is_done: bool = false
+  var _consumer: Timer = Timer.new('Consumer')
   def _OnEnter()
     this.PrintOnly()
   enddef
@@ -399,66 +406,47 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
     this._cmd = this._searchstr
     this._searchstr = "" # reset search back to empty, as it not intend to fuzzy search on that path
     this._input_list = []
-    this._buffer = []
-    this._error_msg = []
+    this._last_len = 0
   enddef
   def Search(searchstr: string = "")
     super.Search(searchstr)
 
     var tmp_file = tempname()
     writefile([this._cmd], tmp_file)
-
     this._job = Job.new(this)
     this._job.Start("sh " .. tmp_file) 
+    Debug("Running command: " .. this._cmd)
 
-    this._logger.Debug("Running command: " .. this._cmd)
-
-    this._poll_timer = Timer.new('Poll timer', 50, -1)
-    this._poll_timer.Start(this)
-
+    this._consumer.Start(this)
     popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderRunning'] })
   enddef
   def Run()
-    if (popup_getpos(this._popup_id)->empty())
-      this._poll_timer.Stop()
-      popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderNormal'] })
-      this._logger.Debug("Popup close, killed polling timer")
-      if (!this._error_msg->empty())
-        this._logger.Debug("Error while executing cmd: " .. this._cmd)
-        this._logger.DebugList(this._error_msg)
-      endif
-      return
-    endif
-
-    if (this._buffer->empty()) 
-      if (this._job.IsDead())  # job dead, buffer is empty. Let's stop the timer
-        this._poll_timer.Stop()
-        popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderNormal'] })
-        this._logger.Debug("Buffer is empty, data stream end, stop polling timer")
-        if (!this._error_msg->empty())
-          this._logger.Debug("Error while executing cmd: " .. this._cmd)
-          this._logger.DebugList(this._error_msg)
-        endif
-      endif
-    else # buffer is not empty, lets match it
-      var payload = this._buffer->remove(0, this._buffer->len() - 1) # consume the buffer
-      this._logger.Debug("Fetching iput list, payloads: " .. payload->len() .. " records -  total: " .. this._input_list->len())
+    var curlen = this._input_list->len()
+    if (curlen > this._last_len) # Got new data
+      Debug($"Run(): {curlen - this._last_len} records fetched. Totals: {curlen}")
+      this._last_len = curlen
       this.Match()
       this.SetText()
+      this._consumer.Start(this)
+    elseif this._job.IsDead() # No new data & job is dead, more records may be polling in on Message()
+      this._is_done = true
+      popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderNormal'] })
+    else # job is alive, fetching data, give it 20mili before comming back
+      this._consumer.Start(this, 20)
     endif
   enddef
   def ParseEntry(msg: string): dict<any>
-    # realtext: orginal return from shell command
-    # text: matchfuzzypos() run on this
     return { 'text': msg, 'realtext': msg }
   enddef
   def Message(ch: channel, msg: string)
-    var message: dict<any> = this.ParseEntry(msg)
-    this._input_list->add(message)    
-    this._buffer->add(message)
+    this._input_list->add(this.ParseEntry(msg))    
+    if (this._is_done) # consumer timer marked it done as job's dead, but data polling in
+      this._is_done = false
+      this._consumer.Start(this)
+    endif
   enddef
   def Error(ch: channel, msg: string)
-    this._error_msg->add(msg)
+    Debug(msg)
   enddef
   def Exit(ch: job, status: number)
   enddef
@@ -652,7 +640,7 @@ export class Explorer extends AbstractFuzzy
     this.RelistDirectory()
   enddef
   def ChangeDir(dir: string)
-    this._logger.Debug("ChangeDir() dir: " .. dir .. " selected: " .. this.GetSelected())
+    Debug("ChangeDir() dir: " .. dir .. " selected: " .. this.GetSelected())
     if (dir->isdirectory())
       execute($"cd {dir}")
       this.RelistDirectory()
@@ -665,7 +653,7 @@ export class Explorer extends AbstractFuzzy
     this.SetText()
   enddef
   def Close()
-    this._logger.Debug("Close() roll back orginal pwd: " .. this._usr_dir)
+    Debug("Close() roll back orginal pwd: " .. this._usr_dir)
     execute($"cd  {this._usr_dir}")
     super.Close()
   enddef
