@@ -11,9 +11,7 @@ export class Logger
 endclass
 
 export def Debug(str: string)
-  if exists("g:fuzzy_logger")
-    g:fuzzy_logger.Debug(str)
-  endif
+  if exists("g:fuzzy_logger") | g:fuzzy_logger.Debug(str) | endif
 enddef
 
 interface MessageHandler
@@ -122,7 +120,6 @@ abstract class AbstractFuzzy
       { 'keys': ['x', 's', 'p'], cb: this.Ignore}, # ignore delete key, so less confuse
       { 'keys': ['o'], cb: this.Preview}, # ignore delete key, so less confuse
       { 'keys': ['t'], 'cb': this.TogglePretext, 'settext': this.SetText },
-      { 'keys': ['r'], 'cb': this.ToggleRealtext, 'settext': this.SetText },
       { 'keys': [], 'cb': this.NormalExecute}
     ], 
     'preview': [
@@ -141,7 +138,7 @@ abstract class AbstractFuzzy
   var _searchstr: string
   var _key: string # user input key
   var _mode: string
-  var _toggles = { pretext: false, posttext: false, preview: false, realtext: false }
+  var _toggles = { pretext: false, posttext: false, preview: false}
   var _filetype = ''
   var _name = ''
 
@@ -174,9 +171,6 @@ abstract class AbstractFuzzy
   enddef
   def TogglePosttext()
     this._toggles.posttext = !this._toggles.posttext
-  enddef
-  def ToggleRealtext()
-    this._toggles.realtext = !this._toggles.realtext
   enddef
   def SetMode(str: string)
     this._mode = str
@@ -219,7 +213,7 @@ abstract class AbstractFuzzy
     var [pretextl, textl, posttextl] = [pretext->len(), text->len(), posttext->len()]
     return { 
       text: pretext .. text .. posttext, 
-      props: this.CreateTextMatchPosProp(i, pretext) + this.CreatePostTextProp(pretext, text, posttext)
+      props: this.CreatePreTextProp(pretext, text, posttext) + this.CreateTextMatchPosProp(i, pretext) + this.CreatePostTextProp(pretext, text, posttext)
     }
   enddef
   def CreateTextMatchPosProp(i: number, pretext: string): list<any>
@@ -229,14 +223,27 @@ abstract class AbstractFuzzy
     return []
   enddef
   def CreatePostTextProp(pretext: string, text: string, posttext: string): list<any>
-    return [{ col: pretext->len() + text->len() + 1, length: posttext->len(), type: 'FuzzyPostText'}]
+    return this._toggles.posttext ? [{ col: pretext->len() + text->len() + 1, length: posttext->len(), type: 'FuzzyPostText'}] : []
+  enddef
+  def CreatePreTextProp(pretext: string, text: string, posttext: string): list<any>
+    return this._toggles.pretext ? [{ col: 1, length: pretext->len(), type: 'FuzzyPostText'}] : []
   enddef
   def GetPostText(entry: dict<any>): string
-    # realtext give more detail information of the entry like real path
-    return (this._toggles.posttext ? entry->get('posttext', '') : '') .. (this._toggles.realtext ? " " .. entry->get('realtext', '') : '')
+    # realtext give more detail information of the entry like real path  .. (this._toggles.realtext ? " " .. entry->get('realtext', '') : '')
+    return (this._toggles.posttext ? entry->get('posttext', '') : '') 
   enddef
   def GetPretext(entry: dict<any>): string
-    return this._toggles.pretext ? entry->get('pretext', '') : ''
+    var pretext = ''
+    if this._toggles.pretext
+      pretext = entry->get('pretext', '')
+      if pretext->empty()
+        pretext = entry->get('realtext', '')
+        if !pretext->empty()
+          pretext = pretext->fnamemodify(':h') .. '/'
+        endif
+      endif
+    endif
+    return pretext
   enddef
   def AddPadding(...items: list<any>): string
     var rt = items->filter((_, v) => !v->empty())->reduce((f, l) => f .. ' ' .. l, '')
@@ -575,6 +582,9 @@ export class Explorer extends AbstractFuzzy
         this.ChangeDir(this.GetSelected())
       endif
     endif
+  enddef
+  def CreatePreTextProp(pretext: string, text: string, posttext: string): list<any>
+    return [] # explorer has its own syntax highlight, no need for pretext prop
   enddef
   def Before()
     this.PopulateInputList()
