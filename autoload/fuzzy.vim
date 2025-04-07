@@ -147,7 +147,8 @@ abstract class AbstractFuzzy
   def Ignore()
   enddef
 
-# TODO: not all command can preview! try o with command fuzzy
+# TODO: Command fuzzy works, but in/out preview mess it up
+# live grep is seem very handy, gotta implement it
   def Preview()
     this._toggles.preview = !this._toggles.preview
     if this._toggles.preview
@@ -346,6 +347,7 @@ abstract class AbstractFuzzy
     sel->empty() ?? this.Exec(sel)
   enddef
   def Exec(cmd: string)
+    Debug($"{this._action_maps->get(this._key)} {cmd}")
     execute($"{this._action_maps->get(this._key)} {cmd}")
   enddef
   def GetSelected(): string
@@ -534,6 +536,17 @@ export class Cmd extends AbstractFuzzy implements Runnable
     this._input_list = getcompletion('', 'command')->mapnew((_, v) => ({'text': v})) 
     this.SetText()
   enddef
+  def _DoPreview()
+    for line in $'verbose com {this.GetSelected()}'->execute()->split('\n')
+      var mm = line->matchlist('\v\s*Last set from (.+) line (\d+)')
+      if !mm->empty() && mm[1] != null_string && mm[2] != null_string
+        win_execute(this._popup_id, $"norm! m`")
+        popup_settext(this._popup_id, mm[1]->glob()->readfile())
+        win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {mm[1]} | norm! {mm[2]}G') # go to that location
+        win_execute(this._popup_id, 'norm! zz') # center the screen
+      endif
+    endfor
+  enddef
 endclass
 
 export class Buffer extends AbstractFuzzy
@@ -575,7 +588,7 @@ export class Explorer extends AbstractFuzzy
     this._mode_maps['insert']->insert({ 'keys': ["-"], 'cb': this.ParentDir})
     this._mode_maps['normal']->insert({ 'keys': ["d"], 'cb': this.DeleteF})
     this._mode_maps['normal']->insert({ 'keys': ["r"], 'cb': this.RenameF})
-    this._mode_maps['normal']->insert({ 'keys': ["n"], 'cb': this.NewFile})
+    this._mode_maps['normal']->insert({ 'keys': ["n"], 'cb': this.NewNode})
     this._mode_maps['normal']->insert({ 'keys': ["-"], 'cb': this.ParentDir})
     this._toggles.posttext = true # for display extra information of file, like dir, link, etc.
     this._toggles.realtext = false # dont show full path, however it is used for preview
@@ -627,11 +640,20 @@ export class Explorer extends AbstractFuzzy
   def ParentDir()
     this.ChangeDir('..')
   enddef
-  def NewFile()
-    inputsave()
-    execute($"edit {input($"New file: ")}")
-    inputrestore()
-    this.Close()
+  def NewNode()
+    inputsave() | var name = input($'Create node: ') | inputrestore()
+    if isdirectory(name) || filereadable(name) | echo "Node exists!" | return | endif
+    if name[name->len() - 1] ==# '/' # dir
+      try 
+        mkdir(name, "p") 
+        this.RelistDirectory()
+      catch 
+        echo v:exception 
+      endtry
+    else
+      execute($'edit {name}')
+      this.Close()
+    endif
   enddef
   def RenameF()
     inputsave()
