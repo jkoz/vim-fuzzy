@@ -201,15 +201,15 @@ abstract class AbstractFuzzy
     endif
 
     var b = reltime()
-    popup_settext(this._popup_id, this.CreateText())
+    popup_settext(this._popup_id, this.CreateText(0, &lines))
     this.SetStatus()
     Debug("SetText() on " .. &lines .. " records. Took " .. b->reltime()->reltimefloat() * 1000)
   enddef
   def HasMatchedCharPos(): bool # got highlight intel for matched character
     return this._matched_list->len() > 1 && !this._matched_list[1]->empty() 
   enddef
-  def CreateText(): list<dict<any>>
-    return this._matched_list[0]->slice(0, &lines)->mapnew((i, t) => this.CreateEntry(i, t))
+  def CreateText(start: number = 0, end: number = 100): list<dict<any>>
+    return this._matched_list[0]->slice(start, end)->mapnew((i, t) => this.CreateEntry(i, t))
   enddef
   def CreateEntry(i: number, entry: dict<any>): dict<any>
     var [pretext, text, posttext] = [this.GetPretext(entry), entry.text, this.GetPostText(entry)]
@@ -325,6 +325,12 @@ abstract class AbstractFuzzy
   enddef
   def Down(): void
     win_execute(this._popup_id, $"norm! j")
+    if this.GetSelectedId() < this._matched_list[0]->len()
+      # since we only display &lines in popup for speed, but if user try to scroll down for review, need to load that file
+      Timer.new('Load remaining file').StartWithCb((d) => {
+        popup_settext(this._popup_id, this.CreateText(0, this._matched_list[0]->len() - 1))
+      })
+    endif
   enddef
   def Delete(): void
     this._searchstr = this._searchstr->substitute(".$", "", "")
