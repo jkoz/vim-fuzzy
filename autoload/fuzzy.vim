@@ -118,7 +118,7 @@ abstract class AbstractFuzzy
       { 'keys': ["k"], 'cb': this.Up, 'setstatus': this.SetStatus },
       { 'keys': ["j"], 'cb': this.Down, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
-      { 'keys': ['x', 's', 'p'], cb: this.Ignore}, # ignore delete key, so less confuse
+      { 'keys': ["\<space>", 'x', 's', 'p'], cb: this.Ignore}, # ignore delete key, so less confuse
       { 'keys': ['o'], cb: this.Preview}, # ignore delete key, so less confuse
       { 'keys': ['t'], 'cb': this.TogglePretext, 'settext': this.SetText },
       { 'keys': [], 'cb': this.NormalExecute}
@@ -184,7 +184,6 @@ abstract class AbstractFuzzy
   enddef
   def InsertMode()
     this.SetMode('insert')
-    this.SetText()
   enddef
   def GetSelectedId(): number
     return line('.', this._popup_id) - 1
@@ -325,10 +324,10 @@ abstract class AbstractFuzzy
   enddef
   def Down(): void
     win_execute(this._popup_id, $"norm! j")
-    if this.GetSelectedId() < this._matched_list[0]->len()
+    if line('$', this._popup_id)  < this._matched_list[0]->len()
       # since we only display &lines in popup for speed, but if user try to scroll down for review, need to load that file
-      Timer.new('Load remaining file').StartWithCb((d) => {
-        popup_settext(this._popup_id, this.CreateText(0, this._matched_list[0]->len() - 1))
+      Timer.new('Load remaining file').StartWithCb((_) => {
+        popup_settext(this._popup_id, this.CreateText(0, this._matched_list[0]->len()))
       })
     endif
   enddef
