@@ -63,7 +63,8 @@ class Timer
   def _HandleTimer(timerId: number)
     this._runnable.Run()
   enddef
-  def StartWithCb(Cb: func(dict<any>), args: dict<any> = {}): void
+  def StartWithCb(Cb: func(dict<any>), args: dict<any> = {}, delay: number = 0, repeat: number = 0) 
+    Debug($'[{this._name}] timer started delay={delay}, repeat={repeat}')
     this._timerId = timer_start(0, function(this._TimerCB, [Cb, args]))
   enddef
   def Stop()
@@ -96,8 +97,8 @@ abstract class AbstractFuzzy
     "\<C-x>": "split",
     "\<C-v>": "vsplit"
   }
-  var _mode_maps:  dict<list<dict<any>>> = { 
-    'insert': [
+  var _mode_maps = { 
+    'insert': { keymap: [
       { 'keys': ["\<ScrollWheelLeft>", "\<ScrollWheelRight>"], cb: this.Ignore },
       { 'keys': ["\<PageUp>", "\<PageDown>"], cb: this.Ignore },
       { 'keys': ["\<ScrollWheelUp>", "\<ScrollWheelDown>"], cb: this.Ignore },
@@ -108,27 +109,29 @@ abstract class AbstractFuzzy
       { 'keys': ["\<C-n>", "\<Tab>", "\<Down>", "\<C-j>"], 'cb': this.Down, 'setstatus': this.SetStatus },
       { 'keys': ["\<C-d>", "\<C-u>"], 'cb': this.NormalExecute, 'setstatus': this.SetStatus }, 
       { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
-      { 'keys': ["\<C-o>"], cb: this.Preview}, # ignore delete key, so less confuse
+      { 'keys': ["\<C-o>"], cb: this.Preview, 'setstatus': this.SetStatus}, # ignore delete key, so less confuse
+      { 'keys': ["\<C-l>"], 'cb': this.LoadAllRecords },
       { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText}
-    ],
-    'normal': [
+    ]},
+    'normal': { keymap: [
       { 'keys': ["i"], 'cb': this.InsertMode},
       { 'keys': ["\<CR>", "\<C-m>", "\<C-t>", "\<C-x>", "\<C-v>"], 'cb': this.Accept },
       { 'keys': ["q", "\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Close},
       { 'keys': ["k"], 'cb': this.Up, 'setstatus': this.SetStatus },
       { 'keys': ["j"], 'cb': this.Down, 'setstatus': this.SetStatus },
+      { 'keys': ["l"], 'cb': this.LoadAllRecords },
       { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
-      { 'keys': ["\<space>", 'x', 's', 'p'], cb: this.Ignore}, # ignore delete key, so less confuse
-      { 'keys': ['o'], cb: this.Preview}, # ignore delete key, so less confuse
+      { 'keys': ["\<space>", 'J', 'x', 's', 'p'], cb: this.Ignore}, # ignore delete key, so less confuse
+      { 'keys': ['o'], cb: this.Preview, 'setstatus': this.SetStatus}, # ignore delete key, so less confuse
       { 'keys': ['t'], 'cb': this.TogglePretext, 'settext': this.SetText },
       { 'keys': [], 'cb': this.NormalExecute}
-    ], 
-    'preview': [
+    ]},
+    'preview': { keymap: [
       { 'keys': ['o', "\<C-o>"], cb: this.Preview }, # ignore delete key, so less confuse
-      { 'keys': ["\<CR>", "\<C-m>", "\<C-t>", "\<C-x>", "\<C-v>"], 'cb': this.Ignore},
+      { 'keys': ["\<CR>", "\<C-m>", "\<C-t>", "\<C-x>", "\<C-v>"], 'cb': this.Accept },
       { 'keys': ["q", "\<esc>", "\<C-g>", "\<C-[>"], 'cb': this.Close},
       { 'keys': [], 'cb': this.NormalExecute}
-    ]
+    ], on_exit: this.Restore}
   }
   var _input_list: list<any>  # input list 
   var _matched_list: list<list<any>> # return by matchfuzzypos() 
@@ -139,36 +142,42 @@ abstract class AbstractFuzzy
   var _searchstr: string
   var _key: string # user input key
   var _mode: string
-  var _pres_mode: string
-  var _toggles = { pretext: false, posttext: false, preview: false}
+  var _pres_mode: string = ""
+  var _toggles = { pretext: false, posttext: false}
   var _filetype = ''
   var _name = ''
 
   def Ignore()
   enddef
 
-# TODO: Command fuzzy works, but in/out preview mess it up
+# TODO: bug: Grep export on ~, go to last line, open preview & enter 
 # live grep is seem very handy, gotta implement it
   def Preview()
-    this._toggles.preview = !this._toggles.preview
-    if this._toggles.preview
-      this._pres_mode = this._mode
-      this.SetMode('preview')
-      this._DoPreview()
-    else
+    if this._mode == 'preview'
       this.SetMode(this._pres_mode)
-      clearmatches(this._popup_id)
-      win_execute(this._popup_id, $"set ft={this._filetype} | norm! '`")
-      this.SetText()
+    elseif this._DoPreview()
+      this.SetMode('preview')
+    else
+      echo $"No preview for [{this.GetSelected()}], back to [{this._mode}] mode"
     endif
   enddef
-  def _DoPreview()
+  def Restore() # called when switch mode from preview to others, this will clear screen & reset fuzzy text
+    clearmatches(this._popup_id)
+    win_execute(this._popup_id, $"set ft={this._filetype} | norm! '`") # jump back to marked selected record for review
+    popup_settext(this._popup_id, this.CreateText(0, this._matched_list[0]->len()))
+  enddef
+  def LoadPreview(fn: string)
+    win_execute(this._popup_id, $"norm! m`") # mark selected record for jumping back
+    popup_settext(this._popup_id, fn->readfile())
+    win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {fn}')
+  enddef
+  def _DoPreview(): bool
     var fn = this.GetSelectedRealText()->glob()
     if (fn->filereadable()) 
-      win_execute(this._popup_id, $"norm! m`")
-      popup_settext(this._popup_id, fn->readfile())
-      win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {fn}')
+      this.LoadPreview(fn)
+      return true
     endif
+    return false
   enddef
   def TogglePretext()
     this._toggles.pretext = !this._toggles.pretext
@@ -177,7 +186,11 @@ abstract class AbstractFuzzy
     this._toggles.posttext = !this._toggles.posttext
   enddef
   def SetMode(str: string)
+    this._pres_mode = this._mode
     this._mode = str
+    if this._mode_maps->get(this._pres_mode)->has_key('on_exit')
+      this._mode_maps->get(this._pres_mode)->get('on_exit')()
+    endif
     echo str
   enddef
   def NormalMode()
@@ -201,7 +214,8 @@ abstract class AbstractFuzzy
     endif
 
     var b = reltime()
-    popup_settext(this._popup_id, this.CreateText(0, &lines))
+    # don't override preview mode screen with fuzzy stuff
+    if this._mode != 'preview' | popup_settext(this._popup_id, this.CreateText(0, &lines)) | endif
     this.SetStatus()
     Debug("SetText() on " .. &lines .. " records. Took " .. b->reltime()->reltimefloat() * 1000)
   enddef
@@ -256,9 +270,7 @@ abstract class AbstractFuzzy
     return this._has_matched ? this._matched_list[0]->len()->string() : ''
   enddef
   def SetStatus()
-    if !this._toggles.preview # don't set title when it in preview mode, since filename won't change
-      popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(this._name, this.GetSelectedRealText(), this.GetMatchedNumberStr())}' })
-    endif
+      popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(this._name, this.GetSelectedRealText(), line("$", this._popup_id)->string(), "of", this.GetMatchedNumberStr())}' })
   enddef
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
     var b = reltime()
@@ -276,7 +288,8 @@ abstract class AbstractFuzzy
   enddef
   
   def Search(searchstr: string = "")
-    this.SetMode('insert') # first start popup always insert mode
+    this._mode = 'insert'
+    this._pres_mode = 'insert'
     this._searchstr = searchstr
     this.Before()  # subclass fuzzy to populate _input_list
     this._popup_id = popup_create([], this._popup_opts->extend({
@@ -298,7 +311,7 @@ abstract class AbstractFuzzy
   enddef
   def Filter(winid: number, key: string): bool
     this._key = key
-    for item in this._mode_maps[this._mode]
+    for item in this._mode_maps[this._mode].keymap
       if (item.keys->empty() || item.keys->index(key) > -1)
         if item->has_key('cb') | item.cb() | endif # if cb is not present, key will be ignored
         if item->has_key('match') | item.match() | endif
@@ -325,12 +338,16 @@ abstract class AbstractFuzzy
   enddef
   def Down(): void
     win_execute(this._popup_id, $"norm! j")
-    if line('$', this._popup_id)  < this._matched_list[0]->len()
-      # since we only display &lines in popup for speed, but if user try to scroll down for review, need to load that file
-      Timer.new('Load remaining file').StartWithCb((_) => {
-        popup_settext(this._popup_id, this.CreateText(0, this._matched_list[0]->len()))
-      })
+    var [c, e] = [line('.', this._popup_id), line('$', this._popup_id)]
+    if c + 4 == e && e < this._matched_list[0]->len() # loading all the files if user start rolling down
+      this.LoadAllRecords()
     endif
+  enddef
+  def LoadAllRecords()
+    Timer.new('Load all matched records').StartWithCb((_) => {
+      popup_settext(this._popup_id, this.CreateText(0, this._matched_list[0]->len()))
+      this.SetStatus()
+    })
   enddef
   def Delete(): void
     this._searchstr = this._searchstr->substitute(".$", "", "")
@@ -536,16 +553,16 @@ export class Cmd extends AbstractFuzzy implements Runnable
     this._input_list = getcompletion('', 'command')->mapnew((_, v) => ({'text': v})) 
     this.SetText()
   enddef
-  def _DoPreview()
-    for line in $'verbose com {this.GetSelected()}'->execute()->split('\n')
-      var mm = line->matchlist('\v\s*Last set from (.+) line (\d+)')
-      if !mm->empty() && mm[1] != null_string && mm[2] != null_string
-        win_execute(this._popup_id, $"norm! m`")
-        popup_settext(this._popup_id, mm[1]->glob()->readfile())
-        win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {mm[1]} | norm! {mm[2]}G') # go to that location
-        win_execute(this._popup_id, 'norm! zz') # center the screen
-      endif
-    endfor
+  def _DoPreview(): bool
+    var mlist = []
+    try | mlist = $'verbose com {this.GetSelected()}'->execute()->matchlist('\s*Last set from \(.\{-}\) line \(\d\+\)')
+    catch | Debug(v:exception) | endtry
+    if !mlist->empty()
+      this.LoadPreview(mlist[1]->glob())
+      win_execute(this._popup_id, $'norm! {mlist[2]}G | zz') # go to cmd location
+      return true
+    endif
+    return false
   enddef
 endclass
 
@@ -585,11 +602,11 @@ endclass
 export class Explorer extends AbstractFuzzy
   var _usr_dir: string
   def new()
-    this._mode_maps['insert']->insert({ 'keys': ["-"], 'cb': this.ParentDir})
-    this._mode_maps['normal']->insert({ 'keys': ["d"], 'cb': this.DeleteF})
-    this._mode_maps['normal']->insert({ 'keys': ["r"], 'cb': this.RenameF})
-    this._mode_maps['normal']->insert({ 'keys': ["n"], 'cb': this.NewNode})
-    this._mode_maps['normal']->insert({ 'keys': ["-"], 'cb': this.ParentDir})
+    this._mode_maps['insert'].keymap->insert({ 'keys': ["-"], 'cb': this.ParentDir})
+    this._mode_maps['normal'].keymap->insert({ 'keys': ["d"], 'cb': this.DeleteF})
+    this._mode_maps['normal'].keymap->insert({ 'keys': ["r"], 'cb': this.RenameF})
+    this._mode_maps['normal'].keymap->insert({ 'keys': ["n"], 'cb': this.NewNode})
+    this._mode_maps['normal'].keymap->insert({ 'keys': ["-"], 'cb': this.ParentDir})
     this._toggles.posttext = true # for display extra information of file, like dir, link, etc.
     this._toggles.realtext = false # dont show full path, however it is used for preview
     this._filetype = "fuzzydir"
@@ -737,18 +754,20 @@ export class Grep extends ShellFuzzy
       this.Exec($"{ch[0]} | norm! {ch[1]}G")
     endif
   enddef
-  def _DoPreview()
-    # pulling realtext from super which will contains full info as <filename:lnum:matched>
-    var sel = super.GetSelectedRealText()
+  def _DoPreview(): bool
+    var sel = super.GetSelectedRealText() # pulling realtext from super which will contains full info as <filename:lnum:matched>
     if !sel->empty()
       var ch = sel->split(':')
-      win_execute(this._popup_id, $"norm! m`") # marked location of current selection in popup
-      popup_settext(this._popup_id, ch[0]->readfile()) # load selected file into popup
-      var col = getbufline(this._bufnr, ch[1]->str2nr())[0]->stridx(this._pattern) + 1 # find start column of the match
-      matchaddpos("FuzzyGrepMatch", [[ch[1]->str2nr(), col, this._pattern->len()]], 101, -1,  {window: this._popup_id}) # add highlight for the match word
-      win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {ch[0]} | norm! {ch[1]}G') # go to that location
-      win_execute(this._popup_id, 'norm! zz') # center the screen
+      this.LoadPreview(ch[0])
+
+      # find start column of the match,  add highlight for the match word
+      var col = getbufline(this._bufnr, ch[1]->str2nr())[0]->stridx(this._pattern) + 1 
+      matchaddpos("FuzzyGrepMatch", [[ch[1]->str2nr(), col, this._pattern->len()]], 101, -1,  {window: this._popup_id})
+
+      win_execute(this._popup_id, $'norm! {ch[1]}G | zz') # go to cmd location
+      return true
     endif
+    return false
   enddef
   def GetSelectedRealText(): string
     # super.GetSelectedRealText() will store full grep info as <filename:lnum:matched>
@@ -876,7 +895,7 @@ export class QuickFix extends AbstractFuzzy
   def _OnEnter()
     execute($':cc! {line('.', this._popup_id)}')
   enddef
-  def _DoPreview()
+  def _DoPreview(): bool
     # pulling realtext from super which will contains full info as <filename:lnum:matched>
     var sel = super.GetSelectedRealText()
     if !sel->empty()
