@@ -188,9 +188,9 @@ abstract class AbstractFuzzy
   def SetMode(str: string)
     this._pres_mode = this._mode
     this._mode = str
-    if this._mode_maps->get(this._pres_mode)->has_key('on_exit')
-      this._mode_maps->get(this._pres_mode)->get('on_exit')()
-    endif
+    var prevm = this._mode_maps->get(this._pres_mode)
+    prevm.prev_sel = line('.', this._popup_id) - 1 # can't use this.GetSelectedId() here, not sure why ?
+    if prevm->has_key('on_exit') | prevm->get('on_exit')() | endif
     echo str
   enddef
   def NormalMode()
@@ -200,6 +200,10 @@ abstract class AbstractFuzzy
     this.SetMode('insert')
   enddef
   def GetSelectedId(): number
+    if this._mode == 'preview'
+      var prevm = this._mode_maps->get(this._pres_mode)
+      return prevm.prev_sel 
+    endif
     return line('.', this._popup_id) - 1
   enddef
   def SetText()
@@ -270,7 +274,9 @@ abstract class AbstractFuzzy
     return this._has_matched ? this._matched_list[0]->len()->string() : ''
   enddef
   def SetStatus()
+    if (this._mode !=# 'preview')
       popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(this._name, this.GetSelectedRealText(), line("$", this._popup_id)->string(), "of", this.GetMatchedNumberStr())}' })
+    endif
   enddef
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
     var b = reltime()
@@ -332,7 +338,6 @@ abstract class AbstractFuzzy
     this.Close() # close popup
   enddef
   def Accept()
-    if (this._mode ==# 'preview') | this.SetMode(this._pres_mode) | endif
     if this._has_matched | this.DoAccept() | endif
   enddef
   def Up(): void
@@ -764,7 +769,7 @@ export class Grep extends ShellFuzzy
       var col = getbufline(this._bufnr, ch[1]->str2nr())[0]->stridx(this._pattern) + 1 
       matchaddpos("FuzzyGrepMatch", [[ch[1]->str2nr(), col, this._pattern->len()]], 101, -1,  {window: this._popup_id})
 
-      win_execute(this._popup_id, $'norm! {ch[1]}G | zz') # go to cmd location
+      win_execute(this._popup_id, $'norm! {ch[1]}G | zz')
       return true
     endif
     return false
@@ -899,12 +904,12 @@ export class QuickFix extends AbstractFuzzy
     # pulling realtext from super which will contains full info as <filename:lnum:matched>
     var sel = super.GetSelectedRealText()
     if !sel->empty()
-      win_execute(this._popup_id, $"norm! m`") # marked location of current selection in popup
-      popup_settext(this._popup_id, sel->readfile()) # load selected file into popup
+      this.LoadPreview(sel)
       var [lnum, end_lnum, col] = [this.GetSelectedItem('lnum'), this.GetSelectedItem('end_lnum'), this.GetSelectedItem('col')]
       matchaddpos("FuzzyGrepMatch", [[lnum, col, end_lnum]], 101, -1,  {window: this._popup_id}) # add highlight for the match word
-      win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {sel} | norm! {lnum}G') # go to that location
-      win_execute(this._popup_id, 'norm! zz') # center the screen
+      win_execute(this._popup_id, $'norm! {lnum}G | zz')
+      return true
     endif
+    return false
   enddef
 endclass
