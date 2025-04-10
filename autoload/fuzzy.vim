@@ -327,11 +327,13 @@ abstract class AbstractFuzzy
       this._matched_list = []
       # this._searchstr = ""
   enddef
+  def DoAccept()
+    this._OnEnter()
+    this.Close() # close popup
+  enddef
   def Accept()
-    if (!this._matched_list[0]->empty())
-      this._OnEnter()
-      this.Close() # close popup
-    endif
+    if (this._mode ==# 'preview') | this.SetMode(this._pres_mode) | endif
+    if this._has_matched | this.DoAccept() | endif
   enddef
   def Up(): void
     win_execute(this._popup_id, $"norm! k")
@@ -611,14 +613,12 @@ export class Explorer extends AbstractFuzzy
     this._toggles.realtext = false # dont show full path, however it is used for preview
     this._filetype = "fuzzydir"
   enddef
-  def Accept()
-    if (!this._matched_list[0]->empty())
-      if (this.GetSelected()->filereadable())
-        this.Edit()
-        this.Close()
-      else
-        this.ChangeDir(this.GetSelected())
-      endif
+  def DoAccept()
+    if (this.GetSelected()->filereadable())
+      this.Edit()
+      this.Close()
+    else
+      this.ChangeDir(this.GetSelected())
     endif
   enddef
   def CreatePreTextProp(pretext: string, text: string, posttext: string): list<any>
