@@ -155,9 +155,7 @@ abstract class AbstractFuzzy
   def Preview()
     if this._mode == 'preview'
       this.SetMode(this._pres_mode)
-    elseif this._DoPreview()
-      this.SetMode('preview')
-    else
+    elseif !this._DoPreview()
       echo $"No preview for [{this.GetSelected()}], back to [{this._mode}] mode"
     endif
   enddef
@@ -167,6 +165,7 @@ abstract class AbstractFuzzy
     popup_settext(this._popup_id, this.CreateText(0, this._matched_list[0]->len()))
   enddef
   def LoadPreview(fn: string)
+    this.SetMode('preview') # set mode before update view as we will record previous mode selected id
     win_execute(this._popup_id, $"norm! m`") # mark selected record for jumping back
     popup_settext(this._popup_id, fn->readfile())
     win_execute(this._popup_id, $'silent! doautocmd filetypedetect BufNewFile {fn}')
@@ -190,6 +189,7 @@ abstract class AbstractFuzzy
     this._mode = str
     var prevm = this._mode_maps->get(this._pres_mode)
     prevm.prev_sel = line('.', this._popup_id) - 1 # can't use this.GetSelectedId() here, not sure why ?
+    Debug('SetMode cur:' .. this._mode .. ' pres:' .. this._pres_mode .. ' prev_sel:' .. prevm.prev_sel->string())
     if prevm->has_key('on_exit') | prevm->get('on_exit')() | endif
     echo str
   enddef
@@ -202,6 +202,7 @@ abstract class AbstractFuzzy
   def GetSelectedId(): number
     if this._mode == 'preview'
       var prevm = this._mode_maps->get(this._pres_mode)
+      Debug($"prev sel {prevm.prev_sel}")
       return prevm.prev_sel 
     endif
     return line('.', this._popup_id) - 1
