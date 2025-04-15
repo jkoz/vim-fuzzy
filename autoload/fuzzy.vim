@@ -160,8 +160,6 @@ abstract class AbstractFuzzy
   def Ignore()
   enddef
 
-# TODO:
-# live grep is seem very handy, gotta implement it
   def Preview()
     if this._mode == 'preview'
       this.SetMode(this._pres_mode)
@@ -760,8 +758,7 @@ endclass
 
 export class Grep extends ShellFuzzy
   var _pattern: string
-  # var _grep_cmd: string = 'grep -swnr '
-  var _grep_cmd: string = 'grep -sniIEr '
+  var _grep_cmd: string = 'grep -sniIr '
   def new()
     this._filetype = 'fuzzygrep'
     this._name = 'Grep'
@@ -811,8 +808,12 @@ export class Grep extends ShellFuzzy
 endclass
 
 export class LGrep extends Grep
+  def new()
+    this._filetype = 'fuzzygrep'
+    this._name = 'Live Grep'
+  enddef
   def CreateGrepCmd(): string
-    return this._grep_cmd .. this._searchstr .. " " .. getcwd()
+    return $'{this._grep_cmd} "{this._searchstr}" {getcwd()}'
   enddef
   def Match()
     if this._job != null && !this._job.IsDead() | this._job.Stop() | endif
@@ -821,21 +822,25 @@ export class LGrep extends Grep
     this._input_list = []
     this._last_len = 0
     this._has_matched = true
+    this._pattern = this._searchstr
     this.DoSearch()
   enddef
   def DoSearch()
     if !this._searchstr->empty() | super.DoSearch() | endif
   enddef
   def Consume()
-    if this._searchstr->len() < 4 && this._input_list->len() > 100
+    if this._searchstr->len() < 4 && this._input_list->len() > &lines # for searchstr less than 4 characters, kill job if we get something
       this._job.Stop()
     endif
     super.Consume()
   enddef
   def OnMessage(ch: channel, msg: string)
-    if ch->ch_info().id == this._job.GetChannelId()
+    if ch->ch_info().id == this._job.GetChannelId() # only update input_list of channel is current.
       super.OnMessage(ch, msg)
     endif
+  enddef
+  def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
+    return [items] # TODO: high light matched word, toggle fuzzy mode, matched word has a bug on high light, oi on MatchFuzzyPos fuzzy.vim:223
   enddef
 endclass
 
