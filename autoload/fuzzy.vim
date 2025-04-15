@@ -23,20 +23,30 @@ endinterface
 class Job
   var _job: job
   var _handler: MessageHandler
-  def new(s: MessageHandler)
-    this._handler = s
+  def Start(cmd: string, handler: MessageHandler): number
+    this._handler = handler
+    this._job = job_start(cmd, {out_cb: this.Message, err_cb: this.Error, exit_cb: this.Exit})
+    Debug('Job started ' .. this._job->string())
+    return this.GetChannelId()
   enddef
-  def Start(cmd: string)
-    this._job = job_start(cmd, {out_cb: this.Message, err_cb: this._handler.Error, exit_cb: this.Exit})
+  def Stop()
+    this._job->job_stop('kill')
+    Debug('Job Stopped ' .. this._job->string())
   enddef
   def Message(ch: channel, msg: string)
     this._handler.Message(ch, msg)
+  enddef
+  def Error(ch: channel, msg: string)
+    this._handler.Error(ch, msg)
   enddef
   def Exit(ch: job, status: number)
     this._handler.Exit(ch, status)
   enddef
   def IsDead(): bool
     return job_status(this._job) ==# 'dead'
+  enddef
+  def GetChannelId(): number
+    return this._job->job_getchannel()->ch_info().id
   enddef
 endclass
 
@@ -150,7 +160,7 @@ abstract class AbstractFuzzy
   def Ignore()
   enddef
 
-# TODO: bug: Grep export on ~, go to last line, open preview & enter 
+# TODO:
 # live grep is seem very handy, gotta implement it
   def Preview()
     if this._mode == 'preview'
@@ -432,10 +442,10 @@ abstract class AbstractCachedFuzzy extends AbstractFuzzy
 endclass
 
 export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, MessageHandler
-  var _job: Job
   var _last_len: number = 0
   var _cmd: string # external commands, grep, find, etc.
-  var _is_done: bool = false
+  var _done: bool = false
+  var _job: Job
   var _consumer: Timer = Timer.new('Consumer')
   def _OnEnter()
     this.PrintOnly()
@@ -452,26 +462,31 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
   enddef
   def Search(searchstr: string = "")
     super.Search(searchstr)
-
+    this.DoSearch()
+  enddef
+  def DoSearch()
     var tmp_file = tempname()
+    Debug($'Run --- {this._cmd}')
     writefile([this._cmd], tmp_file)
-    this._job = Job.new(this)
-    this._job.Start("sh " .. tmp_file) 
+    this._job = Job.new()
+    this._job.Start("sh " .. tmp_file, this)
     Debug("Running command: " .. this._cmd)
-
     this._consumer.Start(this)
     popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderRunning'] })
   enddef
   def Run()
+    this.Consume()
+  enddef
+  def Consume()
     var curlen = this._input_list->len()
-    if (curlen > this._last_len) # Got new data
+    if curlen > this._last_len # Got new data
       Debug($"Run(): {curlen - this._last_len} records fetched. Totals: {curlen}")
       this._last_len = curlen
-      this.Match()
+      this._matched_list = this.MatchFuzzyPos(this._searchstr, this._input_list)
       this.SetText()
       this._consumer.Start(this)
     elseif this._job.IsDead() # No new data & job is dead, more records may be polling in on Message()
-      this._is_done = true
+      this._done = true
       popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderNormal'] })
     else # job is alive, fetching data, give it 20mili before comming back
       this._consumer.Start(this, 20)
@@ -480,12 +495,15 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
   def ParseEntry(msg: string): dict<any>
     return { 'text': msg, 'realtext': msg }
   enddef
-  def Message(ch: channel, msg: string)
+  def OnMessage(ch: channel, msg: string)
     this._input_list->add(this.ParseEntry(msg))    
-    if (this._is_done) # consumer timer marked it done as job's dead, but data polling in
-      this._is_done = false
+    if this._done # consumer timer marked it done as job's dead, but data polling in
+      this._done = false
       this._consumer.Start(this)
     endif
+  enddef
+  def Message(ch: channel, msg: string)
+    this.OnMessage(ch, msg)
   enddef
   def Error(ch: channel, msg: string)
     Debug(msg)
@@ -742,15 +760,20 @@ endclass
 
 export class Grep extends ShellFuzzy
   var _pattern: string
+  # var _grep_cmd: string = 'grep -swnr '
+  var _grep_cmd: string = 'grep -sniIEr '
   def new()
     this._filetype = 'fuzzygrep'
     this._name = 'Grep'
   enddef
-  def Before()
-    super.Before()
+  def CreateGrepCmd(): string
     var pat = this._cmd->empty() ? getcwd() : this._cmd
     this._pattern = expand('<cword>')
-    this._cmd = 'grep -swnr ' .. this._pattern .. " " .. pat
+    return this._grep_cmd .. this._pattern .. " " .. pat
+  enddef
+  def Before()
+    super.Before()
+    this._cmd = this.CreateGrepCmd()
   enddef
   def _OnEnter()
     # pulling realtext from super which will contains full info as <filename:lnum:matched>
@@ -784,6 +807,35 @@ export class Grep extends ShellFuzzy
   def ParseEntry(msg: string): dict<any>
     # currently fuzzy search the whole line of return from grep except for path
     return { 'text': msg->substitute('\(.\{-}\)\(:\d\+:.\+\)', '\=submatch(1)->fnamemodify(":t") .. submatch(2)', ''), 'realtext': msg }
+  enddef
+endclass
+
+export class LGrep extends Grep
+  def CreateGrepCmd(): string
+    return this._grep_cmd .. this._searchstr .. " " .. getcwd()
+  enddef
+  def Match()
+    if this._job != null && !this._job.IsDead() | this._job.Stop() | endif
+    this._cmd = this.CreateGrepCmd()
+    this._matched_list = [[]]
+    this._input_list = []
+    this._last_len = 0
+    this._has_matched = true
+    this.DoSearch()
+  enddef
+  def DoSearch()
+    if !this._searchstr->empty() | super.DoSearch() | endif
+  enddef
+  def Consume()
+    if this._searchstr->len() < 4 && this._input_list->len() > 100
+      this._job.Stop()
+    endif
+    super.Consume()
+  enddef
+  def OnMessage(ch: channel, msg: string)
+    if ch->ch_info().id == this._job.GetChannelId()
+      super.OnMessage(ch, msg)
+    endif
   enddef
 endclass
 

@@ -18,6 +18,7 @@ g:fuzzy_commands = {
   'Highlight': Fuzzy.Highlight.new(),
   'Line': Fuzzy.Line.new(),
   'Grep': Fuzzy.Grep.new(),
+  'LGrep': Fuzzy.LGrep.new(),
   'Find': Fuzzy.Find.new(),
   'Shell': Fuzzy.ShellFuzzy.new(),
   'Quickfix': Fuzzy.QuickFix.new(),
@@ -40,6 +41,7 @@ com! -nargs=* FuzzyLine g:fuzzy_commands.Line.Search(<q-args>)
 com! -nargs=* -complete=dir FuzzyGrep g:fuzzy_commands.Grep.Search(<q-args>) 
 com! -nargs=* -complete=dir FuzzyFind g:fuzzy_commands.Find.Search(<q-args>) 
 com! -nargs=* -complete=dir FuzzyShell g:fuzzy_commands.Shell.Search(<q-args>) 
+com! -nargs=* -complete=dir FuzzyGrepL g:fuzzy_commands.LGrep.Search(<q-args>) 
 
 nn os :FuzzyShell
 nn om <cmd>FuzzyMRU<cr>
@@ -56,6 +58,8 @@ nn ok <cmd>FuzzyTag<cr>
 nn oi <cmd>FuzzyGrep<cr>
 nn oa <cmd>FuzzyHighlight<cr>
 nn oq <cmd>FuzzyQuickFix<cr>
+nn od <cmd>FuzzyGrepL<cr>
+
 
 if !hlexists('PopupSelected') | hi def link PopupSelected  CursorLine | endif
 if !hlexists('FuzzyMatchCharacter') | hi FuzzyMatchCharacter ctermfg=136 cterm=underline | endif
