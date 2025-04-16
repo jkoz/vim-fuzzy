@@ -26,12 +26,14 @@ class Job
   def Start(cmd: string, handler: MessageHandler): number
     this._handler = handler
     this._job = job_start(cmd, {out_cb: this.Message, err_cb: this.Error, exit_cb: this.Exit})
-    Debug('Job started ' .. this._job->string())
+    Debug($'Job ({this.GetChannelId()}) started. cmd: {cmd}' )
     return this.GetChannelId()
   enddef
   def Stop()
-    this._job->job_stop('kill')
-    Debug('Job Stopped ' .. this._job->string())
+    if !this.IsDead()
+      this._job->job_stop('kill')
+      Debug($'Job ({this.GetChannelId()}) killed' )
+    endif
   enddef
   def Message(ch: channel, msg: string)
     this._handler.Message(ch, msg)
@@ -64,10 +66,10 @@ class Timer
   def Start(runnable: Runnable, delay: number = 0, repeat: number = 0)
     try
       this._runnable = runnable
-      Debug($'[{this._name}] timer started delay={delay}, repeat={repeat}')
       this._timerId = timer_start(delay, this._HandleTimer, { 'repeat': repeat })
+      Debug($'Timer ({this._name}) start after {delay} ms')
     catch
-      Debug($'[{this._name}] timer error! delay={delay}, repeat={repeat}')
+      Debug($'Timer ({this._name}) start error {v:exception}')
     endtry
   enddef
   def _HandleTimer(timerId: number)
@@ -290,7 +292,7 @@ abstract class AbstractFuzzy
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
     var b = reltime()
     var ret = items->matchfuzzypos(ss, {'key': 'text'})
-    Debug("Matching [" .. ss .. "] on " .. items->len() .. " records. " .. ret[1]->len() .. " matched! Took " .. b->reltime()->reltimefloat() * 1000)
+    Debug($'matchfuzzypos ({ss}) {items->len()} records. {ret[1]->len()} matched! Took {b->reltime()->reltimefloat() * 1000}')
     return ret
   enddef
 
@@ -464,11 +466,10 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
   enddef
   def DoSearch()
     var tmp_file = tempname()
-    Debug($'Run --- {this._cmd}')
     writefile([this._cmd], tmp_file)
     this._job = Job.new()
-    this._job.Start("sh " .. tmp_file, this)
-    Debug("Running command: " .. this._cmd)
+    this._job.Start($'sh {tmp_file}', this)
+    Debug($'DoSearch() cmd: {this._cmd}')
     this._consumer.Start(this)
     popup_setoptions(this._popup_id, { borderhighlight: ['FuzzyBorderRunning'] })
   enddef
@@ -478,7 +479,7 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
   def Consume()
     var curlen = this._input_list->len()
     if curlen > this._last_len # Got new data
-      Debug($"Run(): {curlen - this._last_len} records fetched. Totals: {curlen}")
+      Debug($"Consume(): {curlen - this._last_len} records fetched. Totals: {curlen}")
       this._last_len = curlen
       this._matched_list = this.MatchFuzzyPos(this._searchstr, this._input_list)
       this.SetText()
@@ -758,15 +759,14 @@ endclass
 
 export class Grep extends ShellFuzzy
   var _pattern: string
-  var _grep_cmd: string = 'grep -sniIr '
+  var _grep_cmd: string = 'grep -sniIr'
   def new()
     this._filetype = 'fuzzygrep'
     this._name = 'Grep'
   enddef
   def CreateGrepCmd(): string
-    var pat = this._cmd->empty() ? getcwd() : this._cmd
     this._pattern = expand('<cword>')
-    return this._grep_cmd .. this._pattern .. " " .. pat
+    return $'{this._grep_cmd} {this._pattern}  {this._cmd->empty() ? getcwd() : this._cmd}'
   enddef
   def Before()
     super.Before()
@@ -816,7 +816,7 @@ export class LGrep extends Grep
     return $'{this._grep_cmd} "{this._searchstr}" {getcwd()}'
   enddef
   def Match()
-    if this._job != null && !this._job.IsDead() | this._job.Stop() | endif
+    if this._job != null | this._job.Stop() | endif
     this._cmd = this.CreateGrepCmd()
     this._matched_list = [[]]
     this._input_list = []
