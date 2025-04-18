@@ -805,15 +805,6 @@ export class Grep extends ShellFuzzy
     # currently fuzzy search the whole line of return from grep except for path
     return { 'text': msg->substitute('\(.\{-}\)\(:\d\+:.\+\)', '\=submatch(1)->fnamemodify(":t") .. submatch(2)', ''), 'realtext': msg }
   enddef
-  # def SetText()
-  #   super.SetText()
-  #   if this._has_matched 
-  #     this._matched_list[0]->foreach((i, v) => {
-  #       var col = v.text->match('\c' .. this._pattern) + 1 
-  #       matchaddpos("FuzzyBorderNormal", [[i + 1, col, this._pattern->len()]], 101, -1,  {window: this._popup_id})
-  #     })
-  #   endif
-  # enddef
 endclass
 
 export class LGrep extends Grep
@@ -849,7 +840,12 @@ export class LGrep extends Grep
     endif
   enddef
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
-    return [items] # TODO: high light matched word, toggle fuzzy mode, matched word has a bug on high light, oi on MatchFuzzyPos fuzzy.vim:223
+    var l = this._pattern->len() - 1
+    # return [items] # TODO: toggle fuzzy mode, matched word has a bug on high light, oi on MatchFuzzyPos fuzzy.vim:223
+    return [items, items->mapnew((k, v) => {
+         var col = v.text->match('\c' .. this._pattern) 
+         return range(col, col + l)
+      })]
   enddef
 endclass
 
