@@ -787,7 +787,7 @@ export class Grep extends ShellFuzzy
       this.LoadPreview(ch[0])
 
       # find start column of the match,  add highlight for the match word
-      var col = getbufline(this._bufnr, ch[1]->str2nr())[0]->stridx(this._pattern) + 1 
+      var col = getbufline(this._bufnr, ch[1]->str2nr())[0]->match('\c' .. this._pattern) + 1 
       matchaddpos("FuzzyGrepMatch", [[ch[1]->str2nr(), col, this._pattern->len()]], 101, -1,  {window: this._popup_id})
 
       win_execute(this._popup_id, $'norm! {ch[1]}G | zz')
@@ -805,6 +805,15 @@ export class Grep extends ShellFuzzy
     # currently fuzzy search the whole line of return from grep except for path
     return { 'text': msg->substitute('\(.\{-}\)\(:\d\+:.\+\)', '\=submatch(1)->fnamemodify(":t") .. submatch(2)', ''), 'realtext': msg }
   enddef
+  # def SetText()
+  #   super.SetText()
+  #   if this._has_matched 
+  #     this._matched_list[0]->foreach((i, v) => {
+  #       var col = v.text->match('\c' .. this._pattern) + 1 
+  #       matchaddpos("FuzzyBorderNormal", [[i + 1, col, this._pattern->len()]], 101, -1,  {window: this._popup_id})
+  #     })
+  #   endif
+  # enddef
 endclass
 
 export class LGrep extends Grep
@@ -852,7 +861,7 @@ export class GitFile extends ShellFuzzy
   def Before()
     super.Before()
     this._file_pwd = expand('%:p:h')
-    this._cmd = 'sh -c "git -C ' .. this._file_pwd .. ' rev-parse --show-toplevel | xargs git -C ' .. this._file_pwd .. ' ls-files"'
+    this._cmd = $'git -C {this._file_pwd} rev-parse --show-toplevel | xargs git -C {this._file_pwd} ls-files'
   enddef
   def GetSelected(): string
     return this._file_pwd .. "/" .. this.GetSelectedRealText()
