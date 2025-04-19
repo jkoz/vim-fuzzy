@@ -123,6 +123,7 @@ abstract class AbstractFuzzy
       { 'keys': ["\<C-h>", "\<BS>"], 'cb': this.Delete, 'match': this.Match, 'settext': this.SetText }, 
       { 'keys': ["\<C-o>"], cb: this.Preview, 'setstatus': this.SetStatus}, # ignore delete key, so less confuse
       { 'keys': ["\<C-l>"], 'cb': this.LoadAllRecords },
+      { 'keys': ["\<C-q>"], 'cb': this.UpdateQfList},
       { 'keys': [], 'cb': this.Regular, 'match': this.Match, 'settext': this.SetText}
     ]},
     'normal': { keymap: [
@@ -136,6 +137,7 @@ abstract class AbstractFuzzy
       { 'keys': ["\<space>", 'J', 'x', 's', 'p'], cb: this.Ignore}, # ignore delete key, so less confuse
       { 'keys': ['o'], cb: this.Preview, 'setstatus': this.SetStatus}, # ignore delete key, so less confuse
       { 'keys': ['t'], 'cb': this.TogglePretext, 'settext': this.SetText },
+      { 'keys': ["\<C-q>"], 'cb': this.UpdateQfList},
       { 'keys': [], 'cb': this.NormalExecute}
     ]},
     'preview': { keymap: [
@@ -342,7 +344,6 @@ abstract class AbstractFuzzy
   def Close()
       popup_close(this._popup_id)
       this._matched_list = []
-      # this._searchstr = ""
   enddef
   def DoAccept()
     this._OnEnter()
@@ -366,6 +367,18 @@ abstract class AbstractFuzzy
       popup_settext(this._popup_id, this.CreateText(0, this._matched_list[0]->len()))
       this.SetStatus()
     })
+  enddef
+  def UpdateQfList() # send matched items to quickfix
+    if this._has_matched
+      setqflist([], ' ', { title: this._name, items: this.QfItems(this._matched_list[0])})
+      this.Close()
+      :copen
+    else
+      echo 'Matched list empty'
+    endif
+  enddef
+  def QfItems(m: list<any>): list<dict<any>>
+    return m->mapnew((_, i) => ({filename: i.realtext->glob()}))
   enddef
   def Delete(): void
     this._searchstr = this._searchstr->substitute(".$", "", "")
@@ -759,7 +772,7 @@ endclass
 
 export class Grep extends ShellFuzzy
   var _pattern: string
-  var _grep_cmd: string = 'grep -sniIr'
+  var _grep_cmd: string = 'grep -sniIr --color=never --exclude-dir=".git" --exclude="*.svn"'
   def new()
     this._filetype = 'fuzzygrep'
     this._name = 'Grep'
@@ -805,6 +818,12 @@ export class Grep extends ShellFuzzy
     # currently fuzzy search the whole line of return from grep except for path
     return { 'text': msg->substitute('\(.\{-}\)\(:\d\+:.\+\)', '\=submatch(1)->fnamemodify(":t") .. submatch(2)', ''), 'realtext': msg }
   enddef
+  def QfItems(m: list<any>): list<dict<any>>
+    return m->mapnew((_, i) => {
+      var ch = i.realtext->matchlist('\(.\{-}\):\(\d\+\):\(.\+\)')
+      return { filename: ch[1], lnum: ch[2]->str2nr(), text: ch[3] }
+    })
+  enddef
 endclass
 
 export class LGrep extends Grep
@@ -841,7 +860,6 @@ export class LGrep extends Grep
   enddef
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
     var l = this._pattern->len() - 1
-    # return [items] # TODO: toggle fuzzy mode, matched word has a bug on high light, oi on MatchFuzzyPos fuzzy.vim:223
     return [items, items->mapnew((k, v) => {
          var col = v.text->match('\c' .. this._pattern) 
          return range(col, col + l)
