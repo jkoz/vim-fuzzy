@@ -1,5 +1,5 @@
 vim9script
-
+# TODO: support workspace symbol...
 export class Logger
   var _debug: bool = true
   def new()
@@ -152,7 +152,6 @@ abstract class AbstractFuzzy
   var _has_matched: bool
   var _bufnr: number
   var _popup_id: number
-  var _prompt: string = "> "
   var _searchstr: string
   var _key: string # user input key
   var _mode: string
@@ -286,7 +285,7 @@ abstract class AbstractFuzzy
     if (this._mode !=# 'preview')
       var rt = this.GetSelectedRealText()
       var cn = $'[{this._name} {this.GetMatchedNumberStr()}:{this._input_list->len()->string()}]'
-      var tt = printf($' > %s %s %s %s ', this._searchstr,
+      var tt = printf($' %s %s %s %s ', this._searchstr,
         this._popup_opts.borderchars[0]->repeat(this._popup_id->popup_getpos().core_width - this._searchstr->len() - rt->len() - cn->len() - 5), cn, rt)
       this._popup_id->popup_setoptions({ title: tt })
     endif
@@ -490,6 +489,7 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
     this.Consume()
   enddef
   def Consume()
+    if this._popup_id->popup_getpos()->empty() | this._job.Stop() | return | endif
     var curlen = this._input_list->len()
     if curlen > this._last_len # Got new data
       Debug($"Consume(): {curlen - this._last_len} records fetched. Totals: {curlen}")
