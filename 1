@@ -225,14 +225,14 @@ abstract class AbstractFuzzy
       if this._searchstr->empty()
         this._matched_list = [this._input_list] 
       else # matchfuzzypos() return empty matched_list for a ligit searchstr
-        this._matched_list = [[{ 'text': this._searchstr }]]
+        # this._matched_list = [[{ 'text': this._searchstr }]]
         this._has_matched = false
       endif
     endif
 
     var b = reltime()
     # don't override preview mode screen with fuzzy stuff
-    if this._mode != 'preview' | popup_settext(this._popup_id, this.CreateText(0, &lines)) | endif
+    if this._mode != 'preview' | popup_settext(this._popup_id, this.CreateText(0, &lines)->insert({ text: this._searchstr })) | endif
     this.SetStatus()
     Debug("SetText() on " .. &lines .. " records. Took " .. b->reltime()->reltimefloat() * 1000)
   enddef
@@ -279,16 +279,16 @@ abstract class AbstractFuzzy
     endif
     return pretext
   enddef
+  def AddPadding(...items: list<any>): string
+    var rt = items->filter((_, v) => !v->empty())->reduce((f, l) => f .. ' ' .. l, '')
+    return rt->empty() ? '' : rt .. ' '
+  enddef
   def GetMatchedNumberStr(): string
     return this._has_matched ? this._matched_list[0]->len()->string() : ''
   enddef
-  def SetStatus()
+  def SetStatus() # TODO, lets put searchstr in title & align other info right hand side
     if (this._mode !=# 'preview')
-      var rt = this.GetSelectedRealText()
-      var cn = $'[{this._name} {this.GetMatchedNumberStr()}:{this._input_list->len()->string()}]'
-      var tt = printf($' > %s %s %s %s ', this._searchstr,
-        this._popup_opts.borderchars[0]->repeat(this._popup_id->popup_getpos().core_width - this._searchstr->len() - rt->len() - cn->len() - 5), cn, rt)
-      this._popup_id->popup_setoptions({ title: tt })
+      popup_setoptions(this._popup_id, { "title": $'{this.AddPadding(this._name, this._searchstr, this.GetSelectedRealText(), line("$", this._popup_id)->string(), "of", this.GetMatchedNumberStr())}' })
     endif
   enddef
   def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
@@ -325,7 +325,8 @@ abstract class AbstractFuzzy
     this.After()
   enddef
   def After()
-    win_execute(this._popup_id, $"set ft={this._filetype}")
+    win_execute(this._popup_id, $"set ft={this._filetype} so=1")
+    win_execute(this._popup_id, 'norm! j')
     Debug("SetText() bufnr=" .. this._bufnr .. " filetype=" .. this._bufnr->getbufvar('&filetype'))
   enddef
   def Filter(winid: number, key: string): bool
@@ -353,7 +354,7 @@ abstract class AbstractFuzzy
     if this._has_matched | this.DoAccept() | endif
   enddef
   def Up(): void
-    win_execute(this._popup_id, $"norm! k")
+    if this.GetSelectedId() > 1 | win_execute(this._popup_id, $"norm! k") | endif
   enddef
   def Down(): void
     win_execute(this._popup_id, $"norm! j")
@@ -384,7 +385,7 @@ abstract class AbstractFuzzy
     this._searchstr = this._searchstr->substitute(".$", "", "")
   enddef
   def Regular(): void
-    win_execute(this._popup_id, $"norm! gg")
+    win_execute(this._popup_id, ':1G')
     this._searchstr = this._searchstr .. this._key
   enddef 
   def NormalExecute(): void
