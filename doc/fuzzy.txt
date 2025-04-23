@@ -18,15 +18,24 @@ action will be executed accordingly. Currently, it support:
 
 COMMANDS                                                        *fuzzy-command*
 
-                                                                     *fuzzy-cmd*
+                                                                    *fuzzy-cmd*
 :FuzzyCmd                Search in vim commands. Upon picked selected item will
                          be pasted vim prompt.
 
-                                                                     *fuzzy-mru*
+                                                                    *fuzzy-mru*
 :FuzzyMRU                Search in most recent use files.
 
-                                                                     *fuzzy-mru*
-:FuzzyTag                Tags files. extags will be called to generate tags
+                                                                    *fuzzy-mru*
+:FuzzyTag                g:fuzzy_tag_cmd will be called to generate tags. if not
+                         exctags will be called
+
+                                                                   *fuzzy-find*
+:FuzzyFind [args]        Run find [args] -type f -not -path "*/\.git/*"'
+                         [args] will be paths it run on.
+
+                                                                    *fuzzy-grep*
+:FuzzyGrep               g:fuzzy_tag_cmd will be called to generate tags. if not
+                         exctags will be called
 
 MODES                                                               *fuzzy-mode*
 

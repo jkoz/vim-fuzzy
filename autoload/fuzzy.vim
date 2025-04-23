@@ -1,7 +1,7 @@
 vim9script
-# TODO: support workspace symbol...
+# TODO: registers, support workspace symbol...
 export class Logger
-  var _debug: bool = true
+  var _debug: bool = false
   def new()
     ch_logfile('/tmp/vim-fuzzy.log', 'w')
   enddef
@@ -159,6 +159,9 @@ abstract class AbstractFuzzy
   var _toggles = { pretext: false, posttext: false}
   var _filetype = ''
   var _name = ''
+  var _options: dict<any> = {
+    glyph_func: exists('g:fuzzy_glyph_func') ? function(g:fuzzy_glyph_func) : (_) => ''
+  } 
 
   def Ignore()
   enddef
@@ -276,7 +279,7 @@ abstract class AbstractFuzzy
         endif
       endif
     endif
-    return pretext
+    return pretext .. this._options.glyph_func(entry.text)
   enddef
   def GetMatchedNumberStr(): string
     return this._has_matched ? this._matched_list[0]->len()->string() : ''
@@ -285,7 +288,7 @@ abstract class AbstractFuzzy
     if (this._mode !=# 'preview')
       var rt = this.GetSelectedRealText()
       var cn = $'[{this._name} {this.GetMatchedNumberStr()}:{this._input_list->len()->string()}]'
-      var tt = printf($' %s %s %s %s ', this._searchstr,
+      var tt = printf($'%s%s %s %s ', this._searchstr->empty() ? '' : $' {this._searchstr} ',
         this._popup_opts.borderchars[0]->repeat(this._popup_id->popup_getpos().core_width - this._searchstr->len() - rt->len() - cn->len() - 5), cn, rt)
       this._popup_id->popup_setoptions({ title: tt })
     endif
@@ -772,14 +775,14 @@ endclass
 
 export class Grep extends ShellFuzzy
   var _pattern: string
-  var _grep_cmd: string = 'grep -sniIr --color=never --exclude-dir=".git" --exclude="*.svn"'
+  var _grep_cmd: string = exists('g:fuzzy_grep_cmd') ? g:fuzzy_grep_cmd : 'grep -sniIr --color=never --exclude-dir=".git" --exclude="*.svn"'
   def new()
     this._filetype = 'fuzzygrep'
     this._name = 'Grep'
   enddef
   def CreateGrepCmd(): string
-    this._pattern = expand('<cword>')
-    return $'{this._grep_cmd} {this._pattern}  {this._cmd->empty() ? getcwd() : this._cmd}'
+    this._pattern = this._cmd->empty() ? expand('<cword>') : this._cmd
+    return $'{this._grep_cmd} {this._pattern}  {getcwd()}'
   enddef
   def Before()
     super.Before()
@@ -922,6 +925,7 @@ export class Help extends AbstractVimFuzzy
   enddef
 endclass
 export class Tag extends AbstractVimFuzzy
+  var _tag_cmd: string = exists('g:fuzzy_tag_cmd') ? g:fuzzy_tag_cmd : 'exctags'
   def new()
     this._type = 'tag'
     this._name = 'Tag'
@@ -930,7 +934,7 @@ export class Tag extends AbstractVimFuzzy
     execute(":tag " .. this.GetSelected())
   enddef
   def PopulateInputList()
-    system($"cd {expand('%:p:h')} && exctags {expand('%:p:h')}")
+    system($"cd {expand('%:p:h')} && {this._tag_cmd} {expand('%:p:h')}")
     super.PopulateInputList()
   enddef
 endclass
