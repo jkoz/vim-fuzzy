@@ -578,7 +578,7 @@ export class CmdHistory extends AbstractFuzzy implements Runnable
     var l = [{ x: m + 1, text: histget(':') }] 
     this._input_list = l + range(1, m)
       ->map((i, _) => ({ text: histget(':', i), x: i }))
-      ->filter((_, v) => v.text !~ "^$")
+      ->filter('v:val.text !~ "^$"')
       ->sort((j, k) => j.x == k.x ? 0 : j.x > k.x ? -1 : 1)
     this.SetText()
   enddef
@@ -630,7 +630,7 @@ export class Buffer extends AbstractFuzzy
     return this.GetSelectedRealText()
   enddef
   def Before()
-    this._input_list = getcompletion('', 'buffer')
+    this._input_list = getcompletion('', 'buffer')->reverse()
       ->filter((_, v) => v->bufnr() != bufnr())
       ->mapnew((_, v) => ({'text': v->fnamemodify(':t'), 'realtext': v}))
   enddef
