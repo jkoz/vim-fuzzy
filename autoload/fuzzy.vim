@@ -271,7 +271,7 @@ abstract class AbstractFuzzy
   def GetPretext(entry: dict<any>): string
     var pretext = ''
     if this._toggles.pretext
-      pretext = entry->get('pretext', '')
+      pretext = entry->get('pretext', '')->string()
       if pretext->empty()
         pretext = entry->get('realtext', '')
         if !pretext->empty()
@@ -312,6 +312,8 @@ abstract class AbstractFuzzy
     this._mode = 'insert'
     this._pres_mode = 'insert'
     this._searchstr = searchstr
+    this._matched_list = []
+    this._input_list = []
     this.Before()  # subclass fuzzy to populate _input_list
     this._popup_id = popup_create([], this._popup_opts->extend({
       cursorline: 1,
@@ -572,11 +574,21 @@ export class CmdHistory extends AbstractFuzzy implements Runnable
     this.Execute()
   enddef
   def Run()
-    # convert list of id to list of string commands
-    this._input_list = [ { 'text': histget('cmd') } ] + range(1, histnr('cmd'))
-      ->mapnew((_, v) => ({'text': 'cmd'->histget(v)->substitute('^[ \t]*\(.*\)[ \t]*$', '\1', '')}))
-      ->sort()->uniq()  
+    var m = histnr(':')
+    var l = [{ x: m + 1, text: histget(':') }] 
+    this._input_list = l + range(1, m)
+      ->map((i, _) => ({ text: histget(':', i), x: i }))
+      ->filter((_, v) => v.text !~ "^$")
+      ->sort((j, k) => j.x == k.x ? 0 : j.x > k.x ? -1 : 1)
     this.SetText()
+  enddef
+  def MatchFuzzyPos(ss: string, items: list<dict<any>>): list<list<any>>
+    # scoring/sorting as per latest use
+    var rt = super.MatchFuzzyPos(ss, items)
+    rt[0]->map((i, d) => d->extend({ p: rt[1][i] }))
+      ->sort((j, k) => j.x == k.x ? 0 : j.x > k.x ? -1 : 1)
+    rt[1]->map((i, _) => rt[0][i].p)
+    return rt
   enddef
 endclass
 
