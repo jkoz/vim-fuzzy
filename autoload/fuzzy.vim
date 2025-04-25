@@ -631,7 +631,6 @@ export class Buffer extends AbstractFuzzy
   enddef
   def Before() # use ls t to get buffer sorted per 'last time used'
     this._input_list = execute('ls t')->split('\n')->matchstrlist('"\(\zs.*\ze\)"')->mapnew((_, v) => v.text)
-      ->filter((_, v) => v->bufnr() != bufnr())
       ->mapnew((_, v) => ({'text': v->fnamemodify(':t'), 'realtext': v}))
   enddef
 endclass
