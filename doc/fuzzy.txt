@@ -37,6 +37,18 @@ COMMANDS                                                        *fuzzy-command*
 :FuzzyGrep               g:fuzzy_tag_cmd will be called to generate tags. if not
                          exctags will be called
 
+                                                                    *fuzzy-help*
+:FuzzyHelp               Search vim help. 
+
+                                                                    *fuzzy-line*
+:FuzzyLine               Search in vim buffer. Accept regex as arg. Following
+                         line will create a simple markdown toc
+                         :FuzzyLine ^#[^#].*|^##[^#].*
+
+                                                               *fuzzy-live-grep*
+:FuzzyGrepL              Live grep in current path. 
+
+
 MODES                                                               *fuzzy-mode*
 
 There are 3 modes: insert, normal & preview
