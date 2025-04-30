@@ -48,6 +48,34 @@ COMMANDS                                                        *fuzzy-command*
                                                                *fuzzy-live-grep*
 :FuzzyGrepL              Live grep in current path. 
 
+                                                                   *fuzzy-shell*
+:FuzzyShell              Run a shell command, load it to popup. Results are
+                         cached.
+                         :FuzzyShell find /home -type file
+                         :FuzzyShell cat ~/.vimrc 
+
+                                                                   *fuzzy-buffer*
+:FuzzyBuffer             List all current buffer, sorted by time from :ls t
+
+                                                                   *fuzzy-keymap*
+:FuzzyKeyMap
+                         List all vim key map
+
+                                                                  *fuzzy-git-file*
+:FuzzyGitFile   
+                         List all git controlled files. Working directory is based
+                         on current opened file's workspace
+
+                                                                  *fuzzy-explorer*
+:FuzzyExplorer
+                         List all current directory files/directories. Support
+                         very basic operation:
+                          - d: delete nodes
+                          - n: new file or directory (end with /)                       
+
+                                                                  *fuzzy-quickfix*
+:FuzzyQuickFix
+                         List all current directory files/directories. Support
 
 MODES                                                               *fuzzy-mode*
 
@@ -59,15 +87,46 @@ key selection: up/down/c-j/c-k/c-n
 Once ; is pressed, it switch to normal mode, then user can use regular vim key
 to move around.  In normal mode, press i to get back to insert mode
 
-If an item is previewable, press o or C-o will bring up info on the same popup. Press 
-o or C-o again will go back to previous mode.
+If an item is previewable, press o or C-o will bring up info on the same popup.
+Press o or C-o again will go back to previous mode.
+
+ENTRY                                                               *fuzzy-entry*
+
+An entry is a line in popup. The entry is divided to 3 parts, pretext, text, and
+post text.
+
+In normal mode, press t will show pretext string. Most of the case, pretext are
+detail path. Other are file info like FuzzyExplorer.
 
 KEY MAPPING                                                   *fuzzy-key-mapping*
+
+Default Command Mapping: use o as prefixed. 
+
+nn os :FuzzyShell
+nn om <cmd>FuzzyMRU<cr>
+nn ol <cmd>FuzzyLine<cr>
+nn of <cmd>FuzzyFind<cr>
+nn ob <cmd>FuzzyCmdHistory<cr>
+nn ox <cmd>FuzzyCmd<cr>
+nn oz <cmd>FuzzyBuffer<cr>
+nn og <cmd>FuzzyGitFile<cr>
+nn oe <cmd>FuzzyExplorer<cr>
+nn on <cmd>FuzzyKeyMap<cr>
+nn oh <cmd>FuzzyHelp<cr>
+nn ok <cmd>FuzzyTag<cr>
+nn oi <cmd>FuzzyGrep<cr>
+nn oa <cmd>FuzzyHighlight<cr>
+nn oq <cmd>FuzzyQuickFix<cr>
+nn od <cmd>FuzzyGrepL<cr>
 
 Enter                    Confirm selection
 C-t                      Open file in a tab
 C-v                      Open file in v-split
 C-x                      Open file in h-split
+C-q                      Send current entries in popup to quick fix
+Esc, C-g, c-[            Close popup
 ;                        Switch from insert to normal mode
 i                        Switch from normal to insert mode
 o                        Load selected item data to current popup
+C-o, o                   Open preview
+C-j/C-k C-n/C-p j/k      Up/Down
