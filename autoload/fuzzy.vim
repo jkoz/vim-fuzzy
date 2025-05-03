@@ -1,5 +1,5 @@
 vim9script
-# TODO: registers, support workspace symbol...
+# TODO: move nodes in explorer, registers, support workspace symbol...
 export class Logger
   var _debug: bool = false
   def new()
@@ -271,7 +271,7 @@ abstract class AbstractFuzzy
   def GetPretext(entry: dict<any>): string
     var pretext = ''
     if this._toggles.pretext
-      pretext = entry->get('pretext', '')->string()
+      pretext = entry->get('pretext', '')
       if pretext->empty()
         pretext = entry->get('realtext', '')
         if !pretext->empty()
@@ -492,6 +492,9 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
   enddef
   def Run()
     this.Consume()
+  enddef
+  def QfItems(m: list<any>): list<dict<any>>
+    return m->mapnew((_, i) => ({text: i.realtext}))
   enddef
   def Consume()
     if this._popup_id->popup_getpos()->empty() | this._job.Stop() | return | endif
