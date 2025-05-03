@@ -377,6 +377,7 @@ abstract class AbstractFuzzy
       setqflist([], ' ', { title: this._name, items: this.QfItems(this._matched_list[0])})
       this.Close()
       :copen
+      :wincmd p # focus on last use windows
     else
       echo 'Matched list empty'
     endif
