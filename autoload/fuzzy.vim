@@ -382,7 +382,20 @@ abstract class AbstractFuzzy
     endif
   enddef
   def QfItems(m: list<any>): list<dict<any>>
-    return m->mapnew((_, i) => ({filename: i.realtext->glob()}))
+    return m->mapnew((_, i) => {
+      var r = {}
+      if i->has_key('realtext')
+        var g = i.realtext->glob()
+        if g->empty()
+          r.text = i.realtext
+        else
+          r.filename = g
+        endif
+      else
+        r.text = i.text
+      endif
+      return r
+    })
   enddef
   def Delete(): void
     this._searchstr = this._searchstr->substitute(".$", "", "")
@@ -492,9 +505,6 @@ export class ShellFuzzy extends AbstractCachedFuzzy implements Runnable, Message
   enddef
   def Run()
     this.Consume()
-  enddef
-  def QfItems(m: list<any>): list<dict<any>>
-    return m->mapnew((_, i) => ({text: i.realtext}))
   enddef
   def Consume()
     if this._popup_id->popup_getpos()->empty() | this._job.Stop() | return | endif
